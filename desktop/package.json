@@ -1,0 +1,96 @@
+{
+  "name": "bubbly-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bubbly Desktop — native Windows IDE shell for the Bubbly AI coding agent",
+  "main": "main.js",
+  "author": "Bubbly",
+  "scripts": {
+    "start": "electron .",
+    "dev": "set BUBBLY_DESKTOP_DEV=1&& electron .",
+    "build:app": "node ../scripts/build-all.js && electron-builder",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "dev.bubbly.desktop",
+    "productName": "Bubbly",
+    "afterPack": "build/after-pack.js",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist",
+        "to": "backend/dist"
+      },
+      {
+        "from": "../backend/node_modules",
+        "to": "backend/node_modules",
+        "filter": [
+          "**/*",
+          "!**/*.md",
+          "!**/*.map",
+          "!**/*.ts",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/.bin/**",
+          "!**/example/**",
+          "!**/examples/**",
+          "!**/docs/**",
+          "!**/.cache/**",
+          "!**/*.h",
+          "!**/*.cc",
+          "!**/*.o",
+          "!**/*.obj"
+        ]
+      },
+      {
+        "from": "../backend/package.json",
+        "to": "backend/package.json"
+      },
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false,
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
+      "shortcutName": "Bubbly",
+      "uninstallDisplayName": "Bubbly",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "warningsAsErrors": false
+    }
+  }
+}

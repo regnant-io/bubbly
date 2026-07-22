@@ -1,0 +1,190 @@
+/* Import Solarized theme with brown/beige accents */
+@import './styles/theme.css';
+/* Import Solarized syntax highlighting */
+@import './styles/syntax.css';
+/* Import markdown content styles */
+@import './styles/markdown.css';
+/* Import animation system */
+@import './styles/animations.css';
+/* Import modern glassmorphic design system */
+@import './styles/glassmorphic.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  /* Google Colab / Notion-style floating card */
+  .floating-container {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Removed hover effect for UI stability - no content shift */
+
+  .panel {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .btn {
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.15s;
+    cursor: pointer;
+  }
+  
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background-color: var(--primary);
+    color: var(--sol-base3);
+  }
+  
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--primary-hover);
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: var(--text-muted);
+  }
+  
+  .btn-ghost:hover {
+    background-color: var(--surface-2);
+    color: var(--text);
+  }
+
+  .btn-danger {
+    background-color: var(--error-bg);
+    color: var(--error);
+    border: 1px solid var(--error);
+  }
+  
+  .btn-danger:hover {
+    background-color: var(--error);
+    color: var(--sol-base3);
+  }
+
+  .input {
+    background-color: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text);
+    width: 100%;
+    transition: border-color 0.15s;
+  }
+  
+  .input::placeholder {
+    color: var(--text-dim);
+  }
+  
+  .input:focus {
+    outline: none;
+    border-color: var(--primary);
+  }
+
+  .tag {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium;
+  }
+
+  .tool-bubble {
+    @apply rounded-xl border p-3 text-xs font-mono animate-fade-in;
+  }
+
+  .diff-add {
+    background-color: var(--success-bg);
+    color: var(--success);
+    border-left: 2px solid var(--success);
+  }
+
+  .diff-del {
+    background-color: var(--error-bg);
+    color: var(--error);
+    border-left: 2px solid var(--error);
+  }
+
+  .diff-ctx {
+    color: var(--text-dim);
+  }
+}
+
+/* Monaco editor dark theme override */
+.monaco-editor .margin {
+  background: transparent !important;
+}
+
+/* Typing cursor */
+.typing-cursor::after {
+  content: '▋';
+  animation: blink 1s step-end infinite;
+  color: var(--primary);
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* Bubble shimmer for loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--surface-3) 50%,
+    var(--surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* xterm.js integrated terminal — make the emulator fill its host and blend
+   with the panel surface. The host div is sized by the TerminalPanel; these
+   rules ensure the xterm viewport tracks that height and the scrollbar matches
+   the app theme. */
+.xterm,
+.xterm .xterm-viewport,
+.xterm .xterm-screen {
+  height: 100% !important;
+}
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+  scrollbar-width: thin;
+}
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: rgba(128, 128, 128, 0.35);
+  border-radius: 5px;
+}

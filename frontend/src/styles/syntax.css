@@ -1,0 +1,236 @@
+/**
+ * Solarized Syntax Highlighting
+ * 
+ * This file provides syntax highlighting styles for code blocks
+ * using the Solarized color palette.
+ * 
+ * Supports: highlight.js, Prism, and generic code blocks
+ */
+
+/* Base code block styling */
+pre, code {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+}
+
+pre {
+  background-color: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  /* Never let a wide code block force the chat column wider than the panel —
+     it caps at the container and scrolls internally, so the panel stays fully
+     resizable no matter how long the lines are. */
+  max-width: 100%;
+  line-height: 1.5;
+}
+
+code {
+  background-color: var(--surface-2);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+
+pre code {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+}
+
+/* Syntax highlighting tokens */
+.hljs,
+.token {
+  color: var(--text);
+}
+
+/* Keywords (if, else, function, class, etc.) */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link,
+.token.keyword,
+.token.control,
+.token.directive {
+  color: var(--syntax-keyword);
+  font-weight: 500;
+}
+
+/* Strings */
+.hljs-string,
+.hljs-title,
+.hljs-name,
+.hljs-type,
+.hljs-attribute,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition,
+.hljs-variable,
+.hljs-template-tag,
+.hljs-template-variable,
+.token.string,
+.token.attr-value {
+  color: var(--syntax-string);
+}
+
+/* Numbers */
+.hljs-number,
+.hljs-meta,
+.token.number,
+.token.boolean,
+.token.constant {
+  color: var(--syntax-number);
+}
+
+/* Comments */
+.hljs-comment,
+.hljs-quote,
+.hljs-deletion,
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+/* Functions */
+.hljs-function,
+.hljs-built_in,
+.hljs-title.function_,
+.token.function,
+.token.function-name {
+  color: var(--syntax-function);
+}
+
+/* Variables and properties */
+.hljs-attr,
+.hljs-property,
+.token.property,
+.token.tag,
+.token.attr-name {
+  color: var(--syntax-variable);
+}
+
+/* Operators */
+.hljs-operator,
+.hljs-punctuation,
+.token.operator,
+.token.punctuation {
+  color: var(--syntax-operator);
+}
+
+/* Constants and built-ins */
+.hljs-regexp,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.token.regex,
+.token.important,
+.token.builtin {
+  color: var(--syntax-constant);
+}
+
+/* Classes and types */
+.hljs-class,
+.hljs-title.class_,
+.token.class-name {
+  color: var(--sol-yellow);
+  font-weight: 500;
+}
+
+/* Tags (HTML/XML) */
+.token.tag {
+  color: var(--sol-blue);
+}
+
+/* Namespaces */
+.token.namespace {
+  opacity: 0.7;
+}
+
+/* Bold and italic */
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+/* Entity */
+.token.entity {
+  cursor: help;
+}
+
+/* Inserted/deleted in diffs */
+.token.inserted {
+  color: var(--success);
+  background-color: var(--success-bg);
+}
+
+.token.deleted {
+  color: var(--error);
+  background-color: var(--error-bg);
+}
+
+/* Line numbers */
+.hljs-ln-numbers {
+  color: var(--text-dim);
+  text-align: right;
+  padding-right: 1rem;
+  user-select: none;
+  border-right: 1px solid var(--border);
+}
+
+.hljs-ln-code {
+  padding-left: 1rem;
+}
+
+/* Line highlighting */
+.hljs-ln-line.highlighted {
+  background-color: var(--primary-light);
+}
+
+/* Inline code in markdown */
+p code,
+li code,
+td code {
+  color: var(--primary);
+  background-color: var(--primary-light);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+
+/* Code block language label */
+pre[class*="language-"]::before {
+  content: attr(data-language);
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Scrollbar for code blocks */
+pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+  background: var(--border-bright);
+}

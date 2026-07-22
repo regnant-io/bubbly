@@ -1,0 +1,230 @@
+.terminal-output {
+  position: relative; /* positioning context for the running "comet" ring */
+  margin: 1rem 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-1);
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+/* A running command gets an ORANGE border with a "comet" that laps the border
+   like a runner on a track. The comet is a bright arc in a rotating conic
+   gradient, masked to just the 1.5px border ring so the card interior is
+   untouched. Chromium (the Electron shell) drives the arc via the animatable
+   @property --terminal-angle; where @property is unsupported the arc renders
+   static and the solid orange ring below still reads as "running". */
+@property --terminal-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.terminal-output.running {
+  /* Solid fallback ring — always visible even without the animated beam. */
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+.terminal-output.running::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px; /* = border ring thickness */
+  background: conic-gradient(
+    from var(--terminal-angle),
+    transparent 0deg,
+    transparent 250deg,
+    color-mix(in srgb, var(--primary) 40%, transparent) 300deg,
+    #ffb066 340deg,
+    #ff7a18 352deg,
+    #ffd9b0 360deg
+  );
+  /* Punch out the interior so only the ring shows. */
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: terminal-comet 2.4s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Keep the header/content above the beam layer. */
+.terminal-output.running .terminal-header,
+.terminal-output.running .terminal-content {
+  position: relative;
+  z-index: 2;
+}
+
+@keyframes terminal-comet {
+  to { --terminal-angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-output.running::after { animation: none; }
+}
+
+.terminal-output.error {
+  border-color: var(--error);
+}
+
+.terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--surface-2);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.terminal-header:hover {
+  background: var(--surface-3);
+}
+
+.terminal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.terminal-icon {
+  color: var(--success);
+  font-size: 0.75rem;
+}
+
+.terminal-command {
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+}
+
+.terminal-time {
+  color: var(--text-dim);
+}
+
+.terminal-duration {
+  color: var(--info);
+  font-weight: 500;
+}
+
+.terminal-exit-code {
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.terminal-exit-code.success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.terminal-exit-code.error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.terminal-running {
+  color: var(--primary);
+  font-style: italic;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.terminal-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0.25rem;
+  font-size: 0.75rem;
+  transition: color 0.2s ease;
+}
+
+.terminal-toggle:hover {
+  color: var(--text);
+}
+
+.terminal-content {
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--surface-0);
+}
+
+.terminal-output-text {
+  margin: 0;
+  padding: 1rem;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.terminal-line {
+  margin: 0;
+  padding: 0;
+}
+
+.terminal-line.stdout {
+  color: var(--text);
+}
+
+.terminal-line.stderr {
+  color: var(--error);
+  font-weight: 500;
+}
+
+.terminal-line.terminal-waiting {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Scrollbar styling for terminal content */
+.terminal-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-content::-webkit-scrollbar-track {
+  background: var(--surface-0);
+}
+
+.terminal-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.terminal-content::-webkit-scrollbar-thumb:hover {
+  background: var(--border-bright);
+}
+
+/* Auto-scroll indicator */
+.terminal-content.auto-scrolling {
+  scroll-behavior: smooth;
+}

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.env
+*.db
+.DS_Store
+*.log
+.bubbly/
+
+# Desktop (Electron) build artifacts
+desktop/release/
+desktop/node_modules/
+
+# Editor / IDE local state
+.vs/
+*.sqlite
+
+# Runtime logs (winston rotation state + rotated files)
+backend/logs/

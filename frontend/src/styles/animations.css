@@ -1,0 +1,226 @@
+/* Animation System for Bubbly */
+/* GPU-accelerated animations with reduced motion support */
+
+/* Message appearance animation */
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 20px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.message-enter {
+  animation: slideInUp 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Approval block appearance animation */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.approval-block-enter {
+  animation: scaleIn 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Bubble loader animation */
+@keyframes bubblePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+.bubble-loader {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.bubble-loader .bubble {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  animation: bubblePulse 1.5s ease-in-out infinite;
+}
+
+.bubble-loader .bubble:nth-child(1) {
+  animation-delay: 0s;
+  background: #b58900; /* Solarized brown */
+}
+
+.bubble-loader .bubble:nth-child(2) {
+  animation-delay: 0.2s;
+  background: #cb4b16; /* Solarized orange */
+}
+
+.bubble-loader .bubble:nth-child(3) {
+  animation-delay: 0.4s;
+  background: #b58900; /* Solarized yellow */
+}
+
+/* Skeleton loader animation */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear;
+  border-radius: 4px;
+}
+
+/* File tree expand/collapse animation */
+.file-tree-item {
+  overflow: hidden;
+  transition: max-height 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.file-tree-item.collapsed {
+  max-height: 0;
+}
+
+.file-tree-item.expanded {
+  max-height: 1000px; /* Large enough for content */
+}
+
+/* Panel resize transition */
+.panel {
+  transition: width 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel.resizing {
+  transition: none; /* Disable during drag */
+}
+
+/* Tool icon pulse animation */
+@keyframes toolPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.tool-icon.active {
+  animation: toolPulse 2s ease-in-out infinite;
+}
+
+/* Fade in/out animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -20px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.animate-slideInDown {
+  animation: slideInDown 0.3s ease-out;
+}
+
+.fade-enter {
+  animation: fadeIn 200ms ease;
+}
+
+.fade-exit {
+  animation: fadeOut 200ms ease;
+}
+
+/* Hover effects - no transform to keep UI stable */
+.button,
+.clickable {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.button:hover,
+.clickable:hover {
+  /* No transform - stable UI */
+}
+
+.button:active,
+.clickable:active {
+  /* No transform - stable UI */
+}
+
+/* Pause animations when tab is hidden to save resources */
+body.tab-hidden * {
+  animation-play-state: paused !important;
+}
+
+/* Reduced motion support for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Shimmer sweep across the verb of a running tool block ("Reading…"). Uses a
+   moving background gradient clipped to the text; falls back gracefully. */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--text) 0%,
+    var(--text) 40%,
+    var(--primary-hover) 50%,
+    var(--text) 60%,
+    var(--text) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmerSweep 1.8s linear infinite;
+}
+
+@keyframes shimmerSweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}

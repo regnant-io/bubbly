@@ -23,6 +23,7 @@ import {
   readRunConfig, writeRunConfig, describeRunConfig,
   type BrowserActionParams, type RunService,
 } from './browserControl';
+import { watchers, describeCondition, type WatchCondition, type WatchResult } from './watchers';
 import { getSetting } from '../../db/index';
 import { supportsVision } from '../../models/capabilities';
 import { resolveModelVision } from '../../models/ollama';
@@ -692,6 +693,39 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: 'watch',
+    description:
+      'Wait for something slow WITHOUT polling. Use this instead of calling get_process_output over and over — every poll is a full round-trip that costs tokens; a watcher costs one call no matter how long the wait.\n' +
+      'USE IT FOR: a build/test run finishing, a dev server becoming reachable, a compile step printing "ready", a file appearing.\n' +
+      'By default it BLOCKS until the condition is met, then returns the outcome AND the relevant output — so you usually do not need a follow-up read.\n' +
+      'Set detached:true to register the watcher and keep working; collect it later with action "collect". Detached results survive even if the current run ends.\n' +
+      'AFTER run_background, the right move is almost always a watch on it — never a retry loop.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['wait', 'collect', 'list', 'cancel'],
+          description: '"wait" (default) creates a watcher. "collect" returns any detached watchers that have since finished. "list" shows active watchers. "cancel" stops one.',
+        },
+        condition: {
+          type: 'string',
+          enum: ['process_exit', 'output_match', 'url_live', 'port_open', 'file_exists'],
+          description: 'What to wait for. process_exit = a run_background command finishes. output_match = a regex appears in its output (best for dev servers that never exit, e.g. "compiled successfully"). url_live = an HTTP URL responds. port_open = a TCP port accepts connections. file_exists = a path appears.',
+        },
+        process_id: { type: 'string', description: 'For process_exit / output_match: the id from run_background.' },
+        pattern: { type: 'string', description: 'For output_match: a regex, case-insensitive. e.g. "ready in|compiled successfully|listening on".' },
+        url: { type: 'string', description: 'For url_live: e.g. "http://localhost:5173".' },
+        port: { type: 'number', description: 'For port_open: e.g. 5173.' },
+        path: { type: 'string', description: 'For file_exists: absolute or workspace-relative path.' },
+        timeout_seconds: { type: 'number', description: 'How long to wait before giving up. Default 300, max 1800. Use a realistic figure — a big build deserves 900.' },
+        detached: { type: 'boolean', description: 'If true, return immediately and collect the result later instead of blocking.' },
+        watcher_id: { type: 'string', description: 'For cancel: the watcher id.' },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'preview_config',
     description:
       'Read or author this project\'s run config (.bubbly/browser-meta.json) — the "how do I start this app" record that Bubbly Preview requires.\n' +
@@ -814,6 +848,50 @@ function fileToToolImage(filePath: string): ToolResultImage | undefined {
  * file, so the model doesn't "lose track" and rewrite the whole thing (which is
  * what causes repeated truncation). Best-effort; returns '' on any error.
  */
+/**
+ * Clamp command output before it reaches the model.
+ *
+ * Untruncated shell output is the single biggest token sink in an agent: one
+ * `npm install` or a verbose test run is thousands of lines, and it lands in
+ * context in full, then gets re-sent with EVERY subsequent message for the rest
+ * of the conversation. The cost isn't paid once, it's paid on every turn after.
+ *
+ * We keep the HEAD (what command ran, how it started) and the TAIL (errors, the
+ * failure summary, the exit line) — the middle of a long build log is almost
+ * never what anyone needs, while the last 40 lines nearly always are. The gap is
+ * marked explicitly so the model knows it is reading an excerpt rather than
+ * silently reasoning over a truncated log.
+ */
+const OUTPUT_HEAD_CHARS = 2_500;
+const OUTPUT_TAIL_CHARS = 8_000;
+const OUTPUT_CLAMP_AT = OUTPUT_HEAD_CHARS + OUTPUT_TAIL_CHARS + 500;
+
+export function clampOutput(text: string, opts: { hint?: string } = {}): string {
+  if (text.length <= OUTPUT_CLAMP_AT) return text;
+  const head = text.slice(0, OUTPUT_HEAD_CHARS);
+  const tail = text.slice(text.length - OUTPUT_TAIL_CHARS);
+  const dropped = text.length - head.length - tail.length;
+  const hint = opts.hint ? ` ${opts.hint}` : '';
+  return `${head}\n\n… [${dropped.toLocaleString()} characters omitted from the middle — the beginning and end are shown]${hint}\n\n${tail}`;
+}
+
+/** Render a settled watcher for the agent. Deliberately carries the OUTPUT with
+ *  the verdict — the whole point is that "it finished" and "here's what it said"
+ *  arrive together, so no follow-up read is needed. */
+function formatWatchResult(r: WatchResult, label: string): string {
+  const secs = (r.waitedMs / 1000).toFixed(1);
+  const head = {
+    met: `DONE after ${secs}s — ${r.detail}`,
+    timeout: `TIMEOUT after ${secs}s — ${r.detail}`,
+    failed: `FAILED after ${secs}s — ${r.detail}`,
+    cancelled: `CANCELLED — ${r.detail}`,
+  }[r.outcome] ?? r.detail;
+  const parts = [`Watched: ${label}`, head];
+  if (r.exitCode != null) parts.push(`Exit code: ${r.exitCode}`);
+  if (r.output) parts.push(`Output:\n${r.output}`);
+  return parts.join('\n');
+}
+
 function describeFileState(workspacePath: string, relPath: string): string {
   try {
     const full = path.resolve(workspacePath, relPath);
@@ -1209,7 +1287,14 @@ export async function executeTool(
               `Answer it with send_process_input("${args.process_id}", "<your reply>")` +
               (ai.suggestedReply ? ` — likely reply: "${ai.suggestedReply}".` : '.');
           }
-          result = { result: `${header}\n${r.output || '(no new output)'}${waitNote}` };
+          // A "still running, no new output" read is the signature of a polling
+          // loop. Point the agent at the watcher instead of letting it spin.
+          const idle = r.status === 'running' && !r.output && !r.awaitingInput;
+          const pollNote = idle
+            ? `\n\nNothing new yet. Do NOT keep re-reading this — call watch(condition:"process_exit", process_id:"${args.process_id}") ` +
+              `to be told the moment it finishes, or watch(condition:"output_match", pattern:"…") if it is a server that never exits.`
+            : '';
+          result = { result: `${header}\n${clampOutput(r.output || '(no new output)', { hint: 'Use lines:N for just the tail.' })}${waitNote}${pollNote}` };
         }
         break;
       }
@@ -1266,6 +1351,60 @@ export async function executeTool(
           }
         }
         toolLogger.info('Computer control action', { action: validated.action, ok: r.ok });
+        break;
+      }
+
+      case 'watch': {
+        const action = String(args.action ?? 'wait');
+
+        if (action === 'collect') {
+          const done = watchers.collectUndelivered();
+          watchers.prune();
+          result = { result: done.length === 0
+            ? 'No detached watchers have finished since you last checked.'
+            : done.map((d) => formatWatchResult(d, d.label)).join('\n\n') };
+          break;
+        }
+        if (action === 'list') {
+          const live = watchers.list();
+          result = { result: live.length === 0 ? 'No watchers.' : live.map((w) =>
+            `${w.id} — ${w.label} — ${w.settled ? `settled (${w.outcome})` : `waiting ${Math.round(w.ageMs / 1000)}s`}`).join('\n') };
+          break;
+        }
+        if (action === 'cancel') {
+          const r = watchers.cancel(String(args.watcher_id ?? ''));
+          result = { result: r.ok ? 'Watcher cancelled.' : `FAILED: ${r.error}` };
+          break;
+        }
+
+        // action === 'wait' — build the condition from the flat args.
+        const kind = String(args.condition ?? '');
+        const condition: WatchCondition | null =
+          kind === 'process_exit' ? { kind: 'process_exit', processId: String(args.process_id ?? '') }
+          : kind === 'output_match' ? { kind: 'output_match', processId: String(args.process_id ?? ''), pattern: String(args.pattern ?? '') }
+          : kind === 'url_live' ? { kind: 'url_live', url: String(args.url ?? '') }
+          : kind === 'port_open' ? { kind: 'port_open', port: Number(args.port) }
+          : kind === 'file_exists' ? { kind: 'file_exists', path: path.resolve(workspacePath, String(args.path ?? '')) }
+          : null;
+        if (!condition) {
+          result = { result: `FAILED: unknown condition "${kind}". Use one of: process_exit, output_match, url_live, port_open, file_exists.` };
+          break;
+        }
+
+        const created = watchers.create(condition, {
+          timeoutMs: args.timeout_seconds ? Number(args.timeout_seconds) * 1000 : undefined,
+        });
+        if (!created.ok) { result = { result: `FAILED: ${created.error}` }; break; }
+
+        if (args.detached) {
+          result = { result: `Watcher ${created.id} is running in the background (${describeCondition(condition)}). Keep working; call watch with action "collect" to pick up the result.` };
+          break;
+        }
+
+        // Blocking wait. This is the token saving: the agent is parked here, not
+        // looping. Nothing is billed while the backend waits.
+        const waited = await watchers.wait(created.id);
+        result = { result: waited ? formatWatchResult(waited, describeCondition(condition)) : 'FAILED: watcher disappeared.' };
         break;
       }
 
@@ -1529,7 +1668,9 @@ export async function executeTool(
             result:
               `${note}\n` +
               `This command does not exit on its own (it looks like a dev server / watcher), so it is running in the background and did NOT block.\n` +
-              `Use get_process_output with process_id "${r.id}" to read its logs, and stop_process to terminate it.\n` +
+              `To know when it is READY, call watch(condition:"output_match", process_id:"${r.id}", pattern:"ready in|compiled successfully|listening on") — ` +
+              `do not poll get_process_output in a loop, that costs a round-trip each time and tells you nothing.\n` +
+              `Use get_process_output for a one-off look at its logs, and stop_process to terminate it.\n` +
               `If you actually needed a one-shot run, call run_command again with foreground:true.`,
           };
         }
@@ -1570,11 +1711,13 @@ export async function executeTool(
             Number(args.timeout_ms ?? 30000)
           );
           
+          // stderr is clamped less aggressively than stdout: when a command
+          // fails, the reason is almost always in stderr, and it's usually short.
           let out = '';
-          if (result.stdout) out += `stdout:\n${result.stdout}\n`;
-          if (result.stderr) out += `stderr:\n${result.stderr}\n`;
+          if (result.stdout) out += `stdout:\n${clampOutput(result.stdout)}\n`;
+          if (result.stderr) out += `stderr:\n${clampOutput(result.stderr)}\n`;
           out += `exit code: ${result.exitCode}`;
-          
+
           toolLogger.info('Shell command completed (streaming)', { 
             command, 
             commandId,
@@ -1592,8 +1735,8 @@ export async function executeTool(
             Number(args.timeout_ms ?? 30000)
           );
           let out = '';
-          if (stdout) out += `stdout:\n${stdout}\n`;
-          if (stderr) out += `stderr:\n${stderr}\n`;
+          if (stdout) out += `stdout:\n${clampOutput(stdout)}\n`;
+          if (stderr) out += `stderr:\n${clampOutput(stderr)}\n`;
           out += `exit code: ${exitCode}`;
           
           toolLogger.info('Shell command completed', { 

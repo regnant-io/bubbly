@@ -44,23 +44,26 @@ export function BubbleRoom() {
     activePanel, setActivePanel, setCurrentSessionId, clearMessages, loadMessages,
     rightStack,
     leftHidden, setLeftHidden,
+    navHidden, setNavHidden,
     uiMode, modeSwitching,
   } = useStore();
   const rightPanelOpen = rightStack.length > 0;
 
-  // Ctrl/Cmd+B toggles the left rail (activity bar + sidebar), like VS Code.
+  // Ctrl/Cmd+B toggles the whole left region (VS Code's muscle memory).
+  // Ctrl/Cmd+Shift+B toggles JUST the icon rail, so you can keep the file tree
+  // while reclaiming the nav strip.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
-        const t = e.target as HTMLElement | null;
-        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-        e.preventDefault();
-        setLeftHidden(!useStore.getState().leftHidden);
-      }
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== 'b') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      e.preventDefault();
+      if (e.shiftKey) setNavHidden(!useStore.getState().navHidden);
+      else setLeftHidden(!useStore.getState().leftHidden);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setLeftHidden]);
+  }, [setLeftHidden, setNavHidden]);
 
   const handleThreadSelect = async (threadId: string) => {
     try {
@@ -165,7 +168,21 @@ export function BubbleRoom() {
               transition={{ duration: 0.18, ease: 'easeOut' }}
               className="flex gap-2 min-h-0 overflow-hidden shrink-0"
             >
-              <ActivityBar />
+              {/* The icon rail hides independently of the sidebar. */}
+              <AnimatePresence initial={false}>
+                {!navHidden && (
+                  <motion.div
+                    key="activity-rail"
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: 'auto', opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                    className="overflow-hidden shrink-0 flex"
+                  >
+                    <ActivityBar />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               {showSidebar && (
                 <ResizablePanel
                   defaultWidth={280}
@@ -182,15 +199,19 @@ export function BubbleRoom() {
           )}
         </AnimatePresence>
 
-        {/* Floating "show left rail" affordance when hidden. */}
-        {leftHidden && (
-          <button
-            onClick={() => setLeftHidden(false)}
-            title="Show side panel (Ctrl+B)"
+        {/* Floating restore affordance. Covers BOTH hidden states — without it,
+            hiding the rail while the sidebar is closed would leave no way back
+            except the keyboard. */}
+        {(leftHidden || navHidden) && (
+          <motion.button
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            onClick={() => { setLeftHidden(false); setNavHidden(false); }}
+            title={leftHidden ? 'Show side panel (Ctrl+B)' : 'Show nav rail (Ctrl+Shift+B)'}
             className="absolute left-3 top-3 z-20 p-1.5 rounded-lg bg-surface-2/90 backdrop-blur border border-border shadow-lg text-text-dim hover:text-text transition-colors"
           >
             <PanelLeft size={14} />
-          </button>
+          </motion.button>
         )}
 
         {/* Center column: the chat/editor. The bottom button bar lives BELOW

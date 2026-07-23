@@ -44,12 +44,24 @@ describe('Shell Tool', () => {
       expect(result.stderr.length).toBeGreaterThan(0);
     });
 
-    it('should handle special characters in PowerShell', () => {
-      if (process.platform === 'win32') {
-        // Test single quotes in command
-        const result = runShell("Write-Output 'test's'", testWorkspace);
-        expect(result.exitCode).toBe(0);
-      }
+    // A correctly quoted command must run VERBATIM. This previously failed
+    // silently: every single quote was doubled for a wrapping that didn't
+    // exist, so `Write-Output 'hello'` became `Write-Output ''hello''` — two
+    // empty strings, printing nothing, exiting 0. The agent saw success and an
+    // empty result with no hint that its command had been rewritten.
+    it('runs single-quoted PowerShell commands verbatim', () => {
+      if (process.platform !== 'win32') return;
+      const result = runShell("Write-Output 'hello world'", testWorkspace);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('hello world');
+    });
+
+    it('propagates the real exit code, not PowerShell\'s 0/1', () => {
+      if (process.platform !== 'win32') return;
+      // Without propagation this arrives as 1, so the agent cannot distinguish
+      // a failed assertion (2) from a crash (137).
+      const result = runShell('node -e "process.exit(7)"', testWorkspace);
+      expect(result.exitCode).toBe(7);
     });
 
     it('should timeout long-running commands', () => {

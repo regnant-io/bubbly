@@ -299,6 +299,23 @@ export function useWebSocket() {
         store.upsertToolCall(event.id, event.tool);
         break;
 
+      case 'tool_progress':
+        // Arguments still streaming — update the live line count / path in
+        // place. No finalize calls here: this fires many times per call and
+        // must stay cheap.
+        store.updateToolProgress(event.id, { path: event.path, bytes: event.bytes, lines: event.lines });
+        break;
+
+      case 'context_usage':
+        store.setContextUsage({
+          usedTokens: event.usedTokens,
+          usableTokens: event.usableTokens,
+          windowTokens: event.windowTokens,
+          model: event.model,
+          source: event.source,
+        });
+        break;
+
       case 'tool_call':
         // A tool call marks the end of the current narration segment. Finalize
         // the streaming text into its own bubble so the natural flow reads as

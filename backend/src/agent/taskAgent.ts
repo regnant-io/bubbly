@@ -14,6 +14,7 @@
  */
 
 import { callModel } from '../models/index';
+import { StreamBuffer } from '../models/streamBuffer';
 import { executeTool, checkRequiresApproval, TOOL_DEFINITIONS } from './tools/index';
 import { buildTaskContext, invalidateIndex } from './intelligence/codeIntelligence';
 import { runValidation, formatIssuesForRepair } from './intelligence/validator';
@@ -98,9 +99,29 @@ ${targetFiles && targetFiles.length > 0 ? `Likely files: ${targetFiles.join(', '
   while (iteration < maxIterations && !isStopped()) {
     iteration++;
     let response;
+    // Batch text AND thinking, exactly as the lead does. Sub-agents previously
+    // emitted a socket frame per token on both streams; with several workers
+    // running at once that was the heaviest source of UI judder.
+    const textBuf = new StreamBuffer(
+      { minTokens: 5, minChars: 100, flushIntervalMs: 50 },
+      (t) => onEvent({ type: 'text_delta', content: t }),
+    );
+    const thinkBuf = new StreamBuffer(
+      { minTokens: 8, minChars: 160, flushIntervalMs: 60 },
+      (t) => onEvent({ type: 'thinking', content: t }),
+    );
     try {
-      response = await callModel({ config, systemPrompt, messages, tools: workerTools, onToken: (t) => onEvent({ type: 'text_delta', content: t }), onThinking: (t) => onEvent({ type: 'thinking', content: t }) });
+      response = await callModel({
+        config, systemPrompt, messages, tools: workerTools,
+        onToken: (t) => textBuf.push(t),
+        onThinking: (t) => thinkBuf.push(t),
+      });
+      thinkBuf.finalize();
+      textBuf.finalize();
     } catch (err) {
+      // Drain before retrying so buffered output isn't lost or replayed late.
+      thinkBuf.finalize();
+      textBuf.finalize();
       logger.error('Delegated agent model call failed', { error: err instanceof Error ? err.message : String(err) });
       await new Promise((r) => setTimeout(r, 600));
       continue;
@@ -278,16 +299,28 @@ export async function runTaskAgent(params: TaskAgentParams): Promise<TaskAgentRe
     iteration++;
 
     let response;
+    const textBuf = new StreamBuffer(
+      { minTokens: 5, minChars: 100, flushIntervalMs: 50 },
+      (t) => onEvent({ type: 'text_delta', content: t }),
+    );
+    const thinkBuf = new StreamBuffer(
+      { minTokens: 8, minChars: 160, flushIntervalMs: 60 },
+      (t) => onEvent({ type: 'thinking', content: t }),
+    );
     try {
       response = await callModel({
         config,
         systemPrompt,
         messages,
         tools: TOOL_DEFINITIONS,
-        onToken: (t) => onEvent({ type: 'text_delta', content: t }),
-        onThinking: (t) => onEvent({ type: 'thinking', content: t }),
+        onToken: (t) => textBuf.push(t),
+        onThinking: (t) => thinkBuf.push(t),
       });
+      thinkBuf.finalize();
+      textBuf.finalize();
     } catch (err) {
+      thinkBuf.finalize();
+      textBuf.finalize();
       logger.error('Task agent model call failed', { taskId: task.id, error: err instanceof Error ? err.message : String(err) });
       // brief backoff then retry once per iteration budget
       await new Promise((r) => setTimeout(r, 800));

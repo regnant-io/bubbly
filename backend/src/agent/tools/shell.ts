@@ -89,12 +89,24 @@ export function isLongRunningCommand(command: string): boolean {
 }
 
 /**
- * Escape special characters for PowerShell
+ * Prepare a command for `powershell.exe -Command <arg>`.
+ *
+ * NO QUOTE ESCAPING HAPPENS HERE, deliberately. The command is passed as its own
+ * argv element, NOT interpolated into a quoted PowerShell string, so there is no
+ * surrounding quote to escape out of. The previous implementation doubled single
+ * quotes (`'` -> `''`) for a wrapping that never existed, which silently
+ * corrupted every command containing one: `node -e 'console.log(42)'` became
+ * `node -e ''console.log(42)''`, which PowerShell parses as two empty strings
+ * concatenated — printing NOTHING and exiting 0. The agent saw a clean success
+ * and an empty result, with no way to tell the command had been mangled.
+ *
+ * What IS added is exit-code propagation: -Command exits with PowerShell's own
+ * 0/1 status rather than the command's, so `npm test` failing with 2 and a
+ * process killed with 137 both arrived as 1. A native exe sets $LASTEXITCODE; a
+ * failed cmdlet leaves it null but clears $?.
  */
 function escapePowerShell(command: string): string {
-  // PowerShell special characters that need escaping: ` $ " ' & | < > ( ) ; , @ #
-  // We wrap the command in single quotes and escape any single quotes inside
-  return command.replace(/'/g, "''");
+  return `${command}; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE } elseif (-not $?) { exit 1 }`;
 }
 
 /**
@@ -241,7 +253,13 @@ export function runShell(
           timeoutMs, 
           duration 
         });
-        return { stdout: '', stderr: `Command timed out after ${timeoutMs}ms`, exitCode: 124 };
+        // Tell the agent what to do instead. A bare "timed out" invites the
+        // same command being retried verbatim — and timing out again.
+        return {
+          stdout: '',
+          stderr: `Command timed out after ${timeoutMs}ms. Do not just retry it: either raise timeout_ms, or (better for anything slow) start it with run_background and wait with watch(condition:"process_exit").`,
+          exitCode: 124,
+        };
       }
       shellLogger.error('Shell command error', { 
         command, 

@@ -94,6 +94,7 @@ export async function callClaude(params: {
   signal?: AbortSignal;
   onToken?: (text: string) => void;
   onToolStart?: (info: { id: string; name: string }) => void;
+  onToolProgress?: (info: { id: string; name: string; partialJson: string }) => void;
 }): Promise<ModelResponse> {
   const modelLogger = logger.child({
     component: 'model-claude',
@@ -157,6 +158,9 @@ export async function callClaude(params: {
       }, { signal: params.signal });
 
       const startedToolIds = new Set<string>();
+      /** Streaming tool-argument state, keyed by content-block index. */
+      const blockIndexToTool = new Map<number, { id: string; name: string }>();
+      const partialArgs = new Map<number, string>();
       for await (const chunk of stream) {
         if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
           textContent += chunk.delta.text;
@@ -170,6 +174,20 @@ export async function callClaude(params: {
           if (!startedToolIds.has(id)) {
             startedToolIds.add(id);
             params.onToolStart?.({ id, name });
+          }
+          blockIndexToTool.set(chunk.index, { id, name });
+          partialArgs.set(chunk.index, '');
+        } else if (chunk.type === 'content_block_delta' && chunk.delta.type === 'input_json_delta') {
+          // The tool's ARGUMENTS streaming in. For a 700-line write_file this is
+          // where the minute goes: the whole file body arrives here, token by
+          // token, while the UI previously showed a bare spinner. Accumulate and
+          // report progress so the user sees the file being written live —
+          // which path, and how much of it exists so far.
+          const meta = blockIndexToTool.get(chunk.index);
+          if (meta) {
+            const acc = (partialArgs.get(chunk.index) ?? '') + chunk.delta.partial_json;
+            partialArgs.set(chunk.index, acc);
+            params.onToolProgress?.({ id: meta.id, name: meta.name, partialJson: acc });
           }
         }
       }

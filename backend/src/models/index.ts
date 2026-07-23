@@ -14,6 +14,11 @@ export async function callModel(params: {
    *  arguments have finished streaming — lets the UI show "Creating file…"
    *  immediately instead of after the whole (possibly large) call streams in. */
   onToolStart?: (info: { id: string; name: string }) => void;
+  /** Fired repeatedly as a tool call's ARGUMENTS stream in. For a large
+   *  write_file this is the only signal available during the long stretch where
+   *  the file body is being generated. Claude streams these; providers that
+   *  deliver tool calls whole simply never fire it. */
+  onToolProgress?: (info: { id: string; name: string; partialJson: string }) => void;
   enableThinking?: boolean;
   signal?: AbortSignal;
   ollamaRetryConfig?: {
@@ -42,6 +47,7 @@ export async function callModel(params: {
       signal: params.signal,
       onToken: params.onToken,
       onToolStart: params.onToolStart,
+      onToolProgress: params.onToolProgress,
     });
   } else if (config.provider === 'ollama') {
     return callOllama({

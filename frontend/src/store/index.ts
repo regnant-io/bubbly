@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { ChatMessage, Session, Settings, FileDiff, Spec } from '../types';
+import type { ChatMessage, Session, Settings, FileDiff, Spec, ContextUsage } from '../types';
 
 /** A context that can be opened as a panel in the right-side stack. */
 export type RightContextId = 'preview' | 'background' | 'diff' | 'terminal' | 'spec' | 'tasks' | 'audit';
@@ -53,8 +53,11 @@ interface AppState {
   /** Whether the first-run onboarding has been completed/dismissed. */
   onboardingComplete: boolean;
   sidebarOpen: boolean;
-  /** Hide the whole left rail (activity bar + sidebar) for a distraction-free view. */
+  /** Hide the whole left region (activity bar + sidebar) for a distraction-free view. */
   leftHidden: boolean;
+  /** Hide ONLY the activity-bar icon rail, keeping the sidebar panel visible.
+   *  Independent of leftHidden so the nav can go away without losing the tree. */
+  navHidden: boolean;
   rightPanelOpen: boolean;
   /** @deprecated kept only for persisted-state compatibility. */
   rightPanelTab: 'spec' | 'audit' | 'tasks';
@@ -157,6 +160,7 @@ interface AppState {
   setOnboardingComplete: (complete: boolean) => void;
   setSidebarOpen: (open: boolean) => void;
   setLeftHidden: (hidden: boolean) => void;
+  setNavHidden: (hidden: boolean) => void;
   /** @deprecated bottom is now a button bar; use openRightContext. */
   revealBottomPanel: (tab: AppState['bottomPanelTab']) => void;
   /** Right-side context stack management (opens a panel on the right). */
@@ -188,6 +192,10 @@ interface AppState {
   /** Create or update a tool_call message keyed by callId. A `tool_started`
    *  event creates it (args unknown yet); the later `tool_call` fills in args. */
   upsertToolCall: (callId: string, tool: string, args?: Record<string, unknown>) => void;
+  updateToolProgress: (callId: string, progress: { path?: string; bytes: number; lines: number }) => void;
+  /** Live context-window usage for the active model, driven by the agent loop. */
+  contextUsage: ContextUsage | null;
+  setContextUsage: (usage: ContextUsage | null) => void;
   updateLastAssistantMessage: (content: string, streaming: boolean) => void;
   appendThinking: (delta: string) => void;
   finalizeThinking: () => void;
@@ -300,6 +308,8 @@ export const useStore = create<AppState>()(
       onboardingComplete: false,
       sidebarOpen: true,
       leftHidden: false,
+      navHidden: false,
+      contextUsage: null,
       rightPanelOpen: false,
       rightPanelTab: 'tasks',
       rightStack: [],
@@ -367,6 +377,7 @@ export const useStore = create<AppState>()(
       },
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       setLeftHidden: (leftHidden) => set({ leftHidden }),
+      setNavHidden: (navHidden) => set({ navHidden }),
       // Back-compat: map the old bottom-panel reveal onto the right stack.
       revealBottomPanel: (tab) => {
         const id = (tab === 'problems' || tab === 'output') ? 'terminal' : tab;
@@ -473,6 +484,21 @@ export const useStore = create<AppState>()(
         ],
       };
     }),
+
+  /** Live progress for a tool call whose arguments are still streaming. Stored
+   *  on the message so a big write_file shows its path and growing line count
+   *  instead of an unchanging spinner. */
+  updateToolProgress: (callId, progress) =>
+    set((state) => {
+      const idx = state.messages.findIndex((m) => m.type === 'tool_call' && m.callId === callId);
+      if (idx < 0) return {};
+      const messages = state.messages.slice();
+      const prev = messages[idx] as Extract<ChatMessage, { type: 'tool_call' }>;
+      messages[idx] = { ...prev, progress } as ChatMessage;
+      return { messages };
+    }),
+
+  setContextUsage: (usage) => set({ contextUsage: usage }),
 
   updateLastAssistantMessage: (content, streaming) =>
     set((state) => {
@@ -1074,6 +1100,7 @@ export const useStore = create<AppState>()(
         uiMode: state.uiMode,
         onboardingComplete: state.onboardingComplete,
         leftHidden: state.leftHidden,
+        navHidden: state.navHidden,
         rightStack: state.rightStack,
         editorTabs: state.editorTabs.map((t) => ({ path: t.path, content: null })),
         activeEditorPath: state.activeEditorPath,
@@ -1090,3 +1117,9 @@ export const useStore = create<AppState>()(
     }
   )
 );
+
+// Dev-only: expose the store for debugging from the browser console (and for
+// driving UI states that normally require a live agent run). Never in a build.
+if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) {
+  (window as unknown as { useStore?: typeof useStore }).useStore = useStore;
+}

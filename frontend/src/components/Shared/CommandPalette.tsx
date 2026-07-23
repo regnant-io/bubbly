@@ -3,7 +3,7 @@ import { useStore } from '../../store';
 import { findFiles, fetchFileContent } from '../../hooks/useApi';
 import {
   MessageSquare, Folder, ClipboardList, Clock, Settings, LayoutGrid,
-  HardDrive, Terminal, Plus, Command, Sun, Moon, Monitor, FileCode,
+  HardDrive, Terminal, Plus, Command, Sun, Moon, Monitor, FileCode, PanelLeft,
 } from './icons';
 
 interface CommandItem {
@@ -115,6 +115,22 @@ export function CommandPalette({ onThreadSelect }: CommandPaletteProps) {
         icon: <Plus size={15} />,
         run: () => { store.clearMessages(); store.setCurrentSessionId(null); store.setActivePanel('chat'); setCommandPaletteOpen(false); },
         keywords: 'reset clear',
+      },
+      {
+        id: 'toggle-sidebar',
+        label: store.leftHidden ? 'Show Side Panel' : 'Hide Side Panel',
+        hint: 'Ctrl+B',
+        icon: <PanelLeft size={15} />,
+        run: () => { store.setLeftHidden(!store.leftHidden); setCommandPaletteOpen(false); },
+        keywords: 'sidebar left hide collapse',
+      },
+      {
+        id: 'toggle-nav',
+        label: store.navHidden ? 'Show Nav Rail' : 'Hide Nav Rail',
+        hint: 'Ctrl+Shift+B',
+        icon: <PanelLeft size={15} />,
+        run: () => { store.setNavHidden(!store.navHidden); setCommandPaletteOpen(false); },
+        keywords: 'activity bar icons rail hide nav',
       },
       { id: 'theme-dark', label: 'Theme: Dark', icon: <Moon size={15} />, run: () => { store.setTheme('dark'); setCommandPaletteOpen(false); } },
       { id: 'theme-light', label: 'Theme: Light', icon: <Sun size={15} />, run: () => { store.setTheme('light'); setCommandPaletteOpen(false); } },

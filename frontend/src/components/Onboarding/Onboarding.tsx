@@ -6,10 +6,14 @@ import {
   Sparkles, FileCode, Terminal as TerminalIcon, Bot, RotateCcw, FolderOpen,
   CheckCircle, Loader2, RefreshCw, ChevronRight, ArrowLeft,
 } from '../Shared/icons';
+import { AnimatePresence, motion } from 'framer-motion';
 
 type Provider = 'claude' | 'ollama' | 'gemini';
 type StepId = 'welcome' | 'provider' | 'workspace' | 'tour' | 'done';
 const STEPS: StepId[] = ['welcome', 'provider', 'workspace', 'tour', 'done'];
+const STEP_LABELS: Record<StepId, string> = {
+  welcome: 'Welcome', provider: 'Model', workspace: 'Project', tour: 'Tour', done: 'Ready',
+};
 
 /**
  * First-run onboarding. A guided, enterprise-style setup that gets a new user
@@ -21,6 +25,9 @@ export function Onboarding() {
   const { settings, setSettings, setWorkspacePath, setOnboardingComplete, setActivePanel } = useStore();
   const [step, setStep] = useState<StepId>('welcome');
   const [saving, setSaving] = useState(false);
+  /** +1 advancing, -1 going back — drives the slide direction. */
+  const [direction, setDirection] = useState(1);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Collected configuration.
   const [provider, setProvider] = useState<Provider>((settings?.defaultProvider as Provider) || 'claude');
@@ -77,6 +84,7 @@ export function Onboarding() {
 
   const finish = async (skipped = false) => {
     setSaving(true);
+    setSaveError(null);
     try {
       const payload: Record<string, string> = { defaultProvider: provider };
       if (anthropicApiKey.trim()) payload.anthropicApiKey = anthropicApiKey.trim();
@@ -86,61 +94,120 @@ export function Onboarding() {
       if (workspacePath.trim()) payload.workspacePath = workspacePath.trim();
 
       if (!skipped) {
-        const updated = await saveSettings(payload).catch(() => null);
+        // A failed save used to be swallowed: the `finally` completed onboarding
+        // regardless, dropping the user into the app with no provider configured
+        // and no idea why nothing worked. Surface it and stay put instead.
+        const updated = await saveSettings(payload);
         if (updated && typeof updated === 'object') setSettings(updated as any);
         if (workspacePath.trim()) setWorkspacePath(workspacePath.trim());
       }
-    } finally {
-      setSaving(false);
       setOnboardingComplete(true);
       setActivePanel('chat');
+    } catch (err) {
+      setSaveError(
+        err instanceof Error
+          ? `Could not save your settings: ${err.message}. Check that the Bubbly backend is running, then try again.`
+          : 'Could not save your settings. Check that the Bubbly backend is running, then try again.'
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
   const next = () => {
     if (step === 'done') { finish(); return; }
+    setDirection(1);
     setStep(STEPS[Math.min(idx + 1, STEPS.length - 1)]);
   };
-  const back = () => setStep(STEPS[Math.max(idx - 1, 0)]);
+  const back = () => {
+    setDirection(-1);
+    setStep(STEPS[Math.max(idx - 1, 0)]);
+  };
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col bg-surface-0 animate-fade-in">
-      {/* Header: brand + progress dots span the full width */}
+      {/* Header: brand + a NAMED stepper. Anonymous dots tell you how far along
+          you are but not what is coming; labels make the whole setup legible at
+          a glance, and the current one is the only thing highlighted. */}
       <div className="flex items-center gap-3 px-6 sm:px-10 pt-6 shrink-0">
         <img src="/bubble.svg" alt="Bubbly" className="w-6 h-6" />
         <span className="text-sm font-semibold text-text">Bubbly</span>
-        <div className="flex items-center gap-1.5 ml-4">
+        <div className="hidden sm:flex items-center gap-1 ml-4">
           {STEPS.map((s, i) => (
-            <span key={s} className={`h-1 rounded-full transition-all ${i <= idx ? 'bg-accent w-6' : 'bg-surface-3 w-3'}`} />
+            <React.Fragment key={s}>
+              {i > 0 && <span className={`h-px w-4 transition-colors duration-300 ${i <= idx ? 'bg-accent/50' : 'bg-border'}`} />}
+              <span
+                className={`text-[11px] px-2 py-0.5 rounded-full transition-colors duration-300 ${
+                  i === idx ? 'bg-accent/15 text-accent-bright font-medium'
+                  : i < idx ? 'text-text-dim'
+                  : 'text-text-dim/40'
+                }`}
+              >
+                {STEP_LABELS[s]}
+              </span>
+            </React.Fragment>
           ))}
         </div>
-        <button onClick={() => finish(true)} className="ml-auto text-xs text-text-dim hover:text-text">Skip setup</button>
+        {/* Compact progress for narrow windows, where labels won't fit. */}
+        <div className="flex sm:hidden items-center gap-1.5 ml-4">
+          {STEPS.map((s, i) => (
+            <span key={s} className={`h-1 rounded-full transition-all duration-300 ${i <= idx ? 'bg-accent w-6' : 'bg-surface-3 w-3'}`} />
+          ))}
+        </div>
+        <button onClick={() => finish(true)} className="ml-auto text-xs text-text-dim hover:text-text transition-colors">Skip setup</button>
       </div>
 
-      {/* Content: fills the screen; the step itself is centered in a readable column */}
+      {/* Content: fills the screen; the step itself is centered in a readable
+          column. Steps slide in the direction of travel so going Back feels
+          like going back, not like a different screen appearing. */}
       <div className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center px-6 py-8">
         <div className="w-full max-w-xl">
-          {step === 'welcome' && <WelcomeStep />}
-          {step === 'provider' && (
-            <ProviderStep
-              provider={provider} setProvider={setProvider}
-              anthropicApiKey={anthropicApiKey} setAnthropicApiKey={setAnthropicApiKey}
-              geminiApiKey={geminiApiKey} setGeminiApiKey={setGeminiApiKey}
-              ollamaBaseUrl={ollamaBaseUrl} setOllamaBaseUrl={setOllamaBaseUrl}
-              ollamaModel={ollamaModel} setOllamaModel={setOllamaModel}
-              ollamaModels={ollamaModels} ollamaState={ollamaState} onCheckOllama={checkOllama}
-            />
-          )}
-          {step === 'workspace' && (
-            <WorkspaceStep workspacePath={workspacePath} setWsPath={setWsPath} onPick={pickFolder} />
-          )}
-          {step === 'tour' && <TourStep />}
-          {step === 'done' && <DoneStep provider={provider} workspacePath={workspacePath} />}
+          <AnimatePresence mode="wait" initial={false} custom={direction}>
+            <motion.div
+              key={step}
+              custom={direction}
+              initial={{ opacity: 0, x: direction * 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: direction * -24 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {step === 'welcome' && <WelcomeStep />}
+              {step === 'provider' && (
+                <ProviderStep
+                  provider={provider} setProvider={setProvider}
+                  anthropicApiKey={anthropicApiKey} setAnthropicApiKey={setAnthropicApiKey}
+                  geminiApiKey={geminiApiKey} setGeminiApiKey={setGeminiApiKey}
+                  ollamaBaseUrl={ollamaBaseUrl} setOllamaBaseUrl={setOllamaBaseUrl}
+                  ollamaModel={ollamaModel} setOllamaModel={setOllamaModel}
+                  ollamaModels={ollamaModels} ollamaState={ollamaState} onCheckOllama={checkOllama}
+                />
+              )}
+              {step === 'workspace' && (
+                <WorkspaceStep workspacePath={workspacePath} setWsPath={setWsPath} onPick={pickFolder} />
+              )}
+              {step === 'tour' && <TourStep />}
+              {step === 'done' && <DoneStep provider={provider} workspacePath={workspacePath} />}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
 
       {/* Footer: full-width bar, actions constrained to the same column */}
       <div className="border-t border-border bg-surface-1 shrink-0">
+        <AnimatePresence>
+          {saveError && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="max-w-xl mx-auto w-full px-6 pt-3">
+                <p className="text-xs text-red-agent bg-error-bg/40 border border-red-agent/30 rounded-lg px-3 py-2">{saveError}</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div className="max-w-xl mx-auto w-full flex items-center justify-between gap-2 px-6 py-4">
           <button onClick={back} disabled={idx === 0 || saving} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-text-dim hover:text-text disabled:opacity-30">
             <ArrowLeft size={15} /> Back
@@ -151,7 +218,7 @@ export function Onboarding() {
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium bg-accent/20 text-accent-bright hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {saving ? <Loader2 size={15} className="animate-spin" /> : null}
-            {step === 'done' ? 'Start building' : 'Continue'}
+            {saving ? 'Saving…' : step === 'done' ? 'Start building' : 'Continue'}
             {step !== 'done' && !saving && <ChevronRight size={15} />}
           </button>
         </div>
@@ -166,10 +233,10 @@ function WelcomeStep() {
       <div className="mx-auto w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center mb-4">
         <img src="/bubble.svg" alt="" className="w-8 h-8" />
       </div>
-      <h2 className="text-xl font-semibold text-text">Welcome to Bubbly</h2>
+      <h2 className="text-xl font-semibold text-text">Bubbly</h2>
       <p className="mt-2 text-sm text-text-muted leading-relaxed">
-        A local-first AI coding agent. It explores your codebase, writes code, runs commands,
-        and asks before anything risky. Let's get you set up in a few quick steps.
+        A coding agent that runs on your machine. Your code stays local, and it asks
+        before it runs anything destructive. Three things to set up — about a minute.
       </p>
       <div className="mt-4 grid grid-cols-2 gap-2 text-left">
         <MiniFeature icon={<Sparkles size={14} />} title="Vibe mode" desc="Chat-driven building" />

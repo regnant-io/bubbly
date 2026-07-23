@@ -38,7 +38,16 @@ interface BackgroundProcess {
   detectedUrl: string | null;
   /** Fired exactly once, the moment a dev-server URL first appears in output. */
   onUrlDetected?: (url: string) => void;
+  /** Generic subscribers (watchers). Notified on new output and on exit, so a
+   *  watcher learns the instant something happens instead of polling for it. */
+  listeners: Set<(ev: ProcessEvent) => void>;
 }
+
+/** What a process subscriber is told. Deliberately small: the watcher reads
+ *  whatever detail it needs back off the manager. */
+export type ProcessEvent =
+  | { type: 'output'; chunk: string; output: string }
+  | { type: 'exit'; exitCode: number | null };
 
 // Matches the URL a dev server prints on startup, e.g. "Local: http://localhost:5173/"
 // or "http://127.0.0.1:3000". Deliberately excludes trailing punctuation/parens.
@@ -56,6 +65,24 @@ function stripAnsi(s: string): string {
 
 class BackgroundProcessManager {
   private procs = new Map<string, BackgroundProcess>();
+
+  /** Subscribe to a process's output/exit. Returns an unsubscribe function.
+   *  A listener that throws must never break the process pipeline, so each is
+   *  called defensively. */
+  subscribe(id: string, fn: (ev: ProcessEvent) => void): () => void {
+    const p = this.procs.get(id);
+    if (!p) return () => { /* nothing to unsubscribe */ };
+    p.listeners.add(fn);
+    return () => { p.listeners.delete(fn); };
+  }
+
+  private emit(p: BackgroundProcess, ev: ProcessEvent): void {
+    for (const fn of p.listeners) {
+      try { fn(ev); } catch (err) {
+        logger.warn('Process listener threw', { id: p.id, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
 
   private append(p: BackgroundProcess, chunk: string): void {
     p.output += chunk;
@@ -90,6 +117,7 @@ class BackgroundProcessManager {
         p.onUrlDetected?.(p.detectedUrl);
       }
     }
+    this.emit(p, { type: 'output', chunk, output: p.output });
   }
 
   /** Start a long-running command. Returns its id, or reuses an equivalent live one. */
@@ -118,8 +146,14 @@ class BackgroundProcessManager {
     const isWindows = process.platform === 'win32';
     const shell = isWindows ? 'powershell.exe' : 'sh';
     const finalCommand = isWindows ? normalizeForWindows(command) : command;
+    // PowerShell's -Command exits with its OWN success/failure code (0 or 1),
+    // not the command's. Without propagation, `npm test` failing with 2 and a
+    // crash exiting 137 both arrive as "1" — the agent loses the ability to tell
+    // a failed assertion from an OOM kill. Propagate the real code: a native exe
+    // sets $LASTEXITCODE; a failed cmdlet leaves it null but clears $?.
     const shellArgs = isWindows
-      ? ['-NoProfile', '-NonInteractive', '-Command', finalCommand]
+      ? ['-NoProfile', '-NonInteractive', '-Command',
+         `${finalCommand}; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE } elseif (-not $?) { exit 1 }`]
       : ['-c', finalCommand];
 
     let proc: ChildProcessWithoutNullStreams;
@@ -137,7 +171,7 @@ class BackgroundProcessManager {
     const p: BackgroundProcess = {
       id, command, cwd, proc,
       output: '', startedAt: Date.now(), exitCode: null, status: 'running', readOffset: 0,
-      awaitingInput: null, detectedUrl: null, onUrlDetected,
+      awaitingInput: null, detectedUrl: null, onUrlDetected, listeners: new Set(),
     };
     this.procs.set(id, p);
 
@@ -153,6 +187,9 @@ class BackgroundProcessManager {
       p.awaitingInput = null;
       this.append(p, `\n[process exited with code ${code ?? 0}]\n`);
       logger.info('Background process exited', { id, code });
+      // Emitted AFTER the append above so a watcher waiting on exit sees the
+      // final output (including any error the command printed on its way out).
+      this.emit(p, { type: 'exit', exitCode: code });
     });
     proc.on('error', (err) => {
       p.status = 'exited';

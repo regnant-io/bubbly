@@ -22,11 +22,17 @@ export const ThinkingBubble = React.memo(function ThinkingBubble({ content, stre
   const [collapsed, setCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // While streaming, keep the latest reasoning in view.
+  // While streaming, keep the latest reasoning in view. The scroll is deferred
+  // to the next frame: writing scrollTop during render/commit forces a
+  // synchronous reflow, and doing that on every chunk is a per-frame layout
+  // stall that reads exactly like "thinking streams less smoothly than text".
   useEffect(() => {
-    if (streaming && !collapsed && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (!streaming || collapsed) return;
+    const raf = requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
   }, [content, streaming, collapsed]);
 
   if (!content && !streaming) return null;
@@ -65,7 +71,15 @@ export const ThinkingBubble = React.memo(function ThinkingBubble({ content, stre
               streaming ? 'opacity-90' : 'opacity-70'
             }`}
           >
-            <MarkdownContent content={content} highlight={!streaming} />
+            {/* While streaming, render reasoning as PLAIN TEXT. Markdown parses
+                the whole block on every chunk (O(n²) over a turn), and thinking
+                is skimmed dim prose where formatting earns nothing mid-flight.
+                The finished block gets the full markdown pass. */}
+            {streaming ? (
+              <div className="whitespace-pre-wrap break-words">{content}</div>
+            ) : (
+              <MarkdownContent content={content} />
+            )}
           </div>
         </div>
       )}

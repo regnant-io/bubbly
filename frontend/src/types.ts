@@ -137,6 +137,8 @@ export type ChatMessage =
       args: Record<string, unknown>;
       callId: string;
       timestamp: number;
+      /** Live stats while the call's arguments are still streaming in. */
+      progress?: { path?: string; bytes: number; lines: number };
     }
   | {
       id: string;
@@ -258,6 +260,8 @@ export type WSServerEvent =
   | { type: 'text_delta'; content: string; lane?: string; laneIndex?: number }
   | { type: 'message'; content: string; sessionId: string; lane?: string; laneIndex?: number }
   | { type: 'tool_started'; id: string; tool: string; lane?: string; laneIndex?: number }
+  | { type: 'tool_progress'; id: string; tool: string; path?: string; bytes: number; lines: number; lane?: string; laneIndex?: number }
+  | { type: 'context_usage'; usedTokens: number; usableTokens: number; windowTokens: number; model: string; source: string }
   | { type: 'tool_call'; id: string; tool: string; args: Record<string, unknown>; lane?: string; laneIndex?: number }
   | { type: 'tool_result'; id: string; tool: string; result: string; diff?: FileDiff[]; lane?: string; laneIndex?: number }
   | { type: 'terminal_start'; id: string; command: string; startTime: number }
@@ -328,4 +332,13 @@ declare global {
   interface Window {
     bubblyDesktop?: BubblyDesktopApi;
   }
+}
+
+/** Live context-window usage for the active model. */
+export interface ContextUsage {
+  usedTokens: number;
+  usableTokens: number;
+  windowTokens: number;
+  model: string;
+  source: string;
 }

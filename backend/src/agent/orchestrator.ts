@@ -15,6 +15,41 @@ import { TOOL_DEFINITIONS, executeTool, checkRequiresApproval } from './tools/in
  * human input, read-only navigation, spec authoring). leadToolsForThread()
  * filters/extends it per mode.
  */
+/**
+ * Read progress out of a tool call's PARTIALLY streamed JSON arguments.
+ *
+ * The JSON is incomplete by definition — we are reading it mid-flight — so this
+ * never attempts a parse. It scrapes the two facts worth showing while a large
+ * file is being generated: WHICH file (available almost immediately, since
+ * "path" is emitted before the bulky "content"), and HOW MUCH of it exists so
+ * far. Escaped newlines in the JSON string are the file's real line breaks, so
+ * counting them gives a live line count that tracks the file as it is written.
+ */
+export function describeToolProgress(partialJson: string): { path?: string; bytes: number; lines: number } {
+  let filePath: string | undefined;
+  // Matches "path": "…" (and file_path/target) with escapes, before the value
+  // is necessarily followed by anything else.
+  const m = /"(?:path|file_path|target)"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(partialJson);
+  if (m) {
+    try { filePath = JSON.parse(`"${m[1]}"`) as string; } catch { filePath = m[1]; }
+  }
+  // Count escaped newlines — these are the content's own line breaks. A file
+  // still on its first line reports 1, not 0, which reads correctly.
+  //
+  // The escape must be CONSUMED whatever it is, not just when it's \n. Scanning
+  // naively for a backslash followed by 'n' misreads the pair `\\n` (an escaped
+  // backslash, then a literal n) as a line break — which inflates the count for
+  // any file containing `\n` in prose, and worse, for every Windows path whose
+  // next segment starts with n ("src\\newdir\\x.ts").
+  let lines = 0;
+  for (let i = 0; i < partialJson.length - 1; i++) {
+    if (partialJson[i] !== '\\') continue;
+    if (partialJson[i + 1] === 'n') lines++;
+    i++; // skip the escaped character regardless of what it was
+  }
+  return { path: filePath, bytes: partialJson.length, lines: lines + 1 };
+}
+
 const LEAD_TOOL_NAMES = new Set<string>([
   // Planning + delegation + human input
   'update_plan',
@@ -36,6 +71,9 @@ const LEAD_TOOL_NAMES = new Set<string>([
   'gather_context',
   'read_config',
   'validate_changes',
+  // Waiting on slow work is needed in EVERY mode — a spec lead watching a test
+  // run should no more poll for it than a vibe lead should.
+  'watch',
   // Spec authoring (read + structure only; no code mutation)
   'create_spec',
   'read_spec',
@@ -66,7 +104,7 @@ const SPEC_TOOL_NAMES = new Set<string>([
  */
 const DIRECT_WORK_TOOL_NAMES = new Set<string>([
   'write_file', 'edit_file', 'append_file', 'delete_file', 'create_directory',
-  'run_command', 'run_background', 'get_process_output', 'list_processes', 'stop_process',
+  'run_command', 'run_background', 'get_process_output', 'list_processes', 'stop_process', 'watch',
   'git_status', 'git_diff', 'git_add_and_commit', 'git_log',
   'create_checkpoint', 'list_checkpoints', 'revert_to_checkpoint', 'rename_symbol',
   // preview_config travels with browser_control: the agent cannot preview
@@ -358,6 +396,14 @@ If a config ALREADY exists, it is authoritative: use it, don't re-write it, and 
 - After a code change to UI, browser_control reload to see the new state.
 - Use browser_control screenshot to actually SEE the rendered design (it returns the image, not just text) before judging whether the UI is correct.
 - This is the single place the user sees your web work — use it liberally instead of leaving the user to open things themselves. (If it says browser control is disabled, ask the user to enable "Allow browser control" in Settings.)
+
+## Waiting on slow things — use **watch**, never a polling loop
+Polling is the most expensive mistake you can make. Every \`get_process_output\` that reports "still running" costs a full round-trip — the whole conversation re-sent and re-billed — and tells you nothing. A build watched by polling can cost more than writing the code did.
+- After \`run_background\`, do NOT read output in a loop. Call \`watch\` once. It returns when the thing is actually done, and hands you the output WITH the verdict, so you rarely need a follow-up read.
+- Dev servers never exit, so waiting for exit would hang until timeout. Watch for what the server PRINTS instead: \`watch(condition:"output_match", pattern:"ready in|compiled successfully|listening on")\`, or wait for the port/URL with \`port_open\`/\`url_live\`.
+- Builds, installs, and test runs DO exit: \`watch(condition:"process_exit")\`, with a realistic \`timeout_seconds\` (a big build deserves 900, not the default 300).
+- Before \`browser_control open\`, make sure the server is actually up — \`watch(condition:"url_live")\` beats opening a dead page and retrying blind.
+- If you have genuinely useful work to do meanwhile, pass \`detached:true\` and pick the result up later with \`watch(action:"collect")\`. Otherwise just block: parked time costs nothing.
 
 ## Writing for the user
 - DEFAULT TO ACTION: decide and proceed on routine choices (naming, structure, sensible defaults). Note the choice briefly.
@@ -899,6 +945,21 @@ User request: `;
 
       logger.debug('Agent iteration starting', { iteration, messageCount: messages.length });
 
+      // Report context usage every iteration so the composer's gauge tracks the
+      // conversation as it grows. This is measured against the model's REAL
+      // operative window (resolved per model), not a fixed guess, so switching
+      // to a bigger model visibly gives the user more room.
+      try {
+        params.onEvent({
+          type: 'context_usage',
+          usedTokens: systemPromptTokens + estimateTotalTokens(messages),
+          usableTokens: usableWindow,
+          windowTokens: operativeLimit.maxTokens,
+          model: agentConfig.model,
+          source: operativeLimit.source,
+        });
+      } catch { /* telemetry must never break the run */ }
+
       // Keep the context window bounded so long runs never break. No-op until
       // history grows large; preserves the goal + recent turns + tool pairing.
       // Budget is tied to the active model's window (see effectiveCompactionBudget).
@@ -976,7 +1037,9 @@ User request: `;
       }
 
       let assistantText = '';
-      
+      /** Last progress emit per tool id, for throttling. */
+      const toolProgressAt = new Map<string, number>();
+
       // Create Stream Buffer instance for this iteration
       const streamBuffer = new StreamBuffer(
         {
@@ -988,6 +1051,18 @@ User request: `;
           assistantText += text;
           params.onEvent({ type: 'text_delta', content: text });
         },
+        logger
+      );
+
+      // Thinking gets the SAME batching treatment as prose. Emitting a WS event
+      // per reasoning token is what made thinking judder while the answer below
+      // it streamed smoothly: reasoning models emit thinking in fast, bursty
+      // runs, and each raw token cost a socket frame plus a React re-render.
+      // Slightly larger batches than prose — thinking is skimmed, not read word
+      // by word, so smoothness matters more than per-token immediacy.
+      const thinkingBuffer = new StreamBuffer(
+        { minTokens: 8, minChars: 160, flushIntervalMs: 60 },
+        (text) => { params.onEvent({ type: 'thinking', content: text }); },
         logger
       );
 
@@ -1018,11 +1093,25 @@ User request: `;
               // the tool as "starting" the instant it begins — so a large file
               // write reads as "Creating file… (working)" immediately instead
               // of a frozen UI until the whole call has streamed in.
+              // Drain reasoning first: a tool starting means thinking is over,
+              // and a stranded partial sentence would land after the tool line.
+              thinkingBuffer.finalize();
               streamBuffer.finalize();
               params.onEvent({ type: 'tool_started', id, tool: name });
             },
             onThinking: (text) => {
-              params.onEvent({ type: 'thinking', content: text });
+              thinkingBuffer.push(text);
+            },
+            onToolProgress: ({ id, name, partialJson }) => {
+              // Throttled: partial_json fires per token, and a 700-line file is
+              // tens of thousands of them. One frame every 120ms is smooth to
+              // the eye and cheap on the socket.
+              const now = Date.now();
+              const last = toolProgressAt.get(id) ?? 0;
+              if (now - last < 120) return;
+              toolProgressAt.set(id, now);
+              const p = describeToolProgress(partialJson);
+              params.onEvent({ type: 'tool_progress', id, tool: name, path: p.path, bytes: p.bytes, lines: p.lines });
             },
             onOllamaRetry: (attempt, maxAttempts, delayMs, error) => {
               params.onEvent({
@@ -1035,7 +1124,8 @@ User request: `;
             },
           });
           
-          // Finalize buffer to ensure all remaining content is flushed
+          // Finalize both buffers so nothing is stranded at end of stream.
+          thinkingBuffer.finalize();
           streamBuffer.finalize();
           
           logger.info('Model response received', { 
@@ -1048,6 +1138,12 @@ User request: `;
           // Success - break out of retry loop
           break;
         } catch (modelError) {
+          // Drain both buffers on EVERY failure path. Without this a pending
+          // flush timer can fire after the run has ended (or after the user hit
+          // Stop) and append a stray fragment to a finished message.
+          thinkingBuffer.finalize();
+          streamBuffer.finalize();
+
           // User pressed Stop — abort cleanly, don't retry or error.
           const isAbort = modelError instanceof Error &&
             (modelError.name === 'AbortError' || /aborted/i.test(modelError.message));

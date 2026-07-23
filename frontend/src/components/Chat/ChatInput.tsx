@@ -3,6 +3,7 @@ import { Send, Square, Paperclip, X, FileText } from '../Shared/icons';
 import { ModelSelector } from './ModelSelector';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { ThreadTypeSelector } from './ThreadTypeSelector';
+import { ContextGauge } from './ContextGauge';
 import { useStore } from '../../store';
 import { useModels } from '../../hooks/useModels';
 
@@ -281,7 +282,7 @@ export function ChatInput({ onSend, onStop, isRunning, disabled, placeholder }: 
             <span className="text-text-dim/40 select-none">·</span>
             <ThreadTypeSelector />
           </div>
-          <span className="text-[10px] text-text-dim pr-2 hidden sm:block shrink-0">Enter to send · Shift+Enter for newline</span>
+          <ContextGauge />
         </div>
       </div>
       {/* AI disclaimer */}

@@ -452,6 +452,7 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
                 diff={resultMsg?.diff}
                 repeatCount={editCounts.get(msg.callId)}
                 shortcutIndex={shortcutMap.get(msg.id)}
+                progress={msg.progress}
               />
             );
 

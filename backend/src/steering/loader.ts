@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getProjectDataPath } from '../agent/projectData';
 
 export function loadSteeringContext(workspacePath: string): string {
   const parts: string[] = [];
@@ -17,8 +18,8 @@ export function loadSteeringContext(workspacePath: string): string {
     }
   }
 
-  // 2. Load .bubbly/steering/ files
-  const steeringDir = path.join(workspacePath, '.bubbly', 'steering');
+  // 2. Load steering/ files from the project's external data dir.
+  const steeringDir = getProjectDataPath(workspacePath, 'steering');
   if (fs.existsSync(steeringDir)) {
     const files = fs.readdirSync(steeringDir).filter((f) => f.endsWith('.md'));
     for (const file of files) {

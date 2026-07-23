@@ -13,6 +13,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { getProjectDataPath } from './projectData';
 import { logger } from '../utils/logger';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '__pycache__', '.venv', 'venv', '.bubbly', 'coverage', '.next', '.nuxt', '.turbo']);
@@ -31,7 +32,7 @@ export interface PromptCheckpoint {
 }
 
 function baseDir(workspacePath: string): string {
-  return path.join(workspacePath, '.bubbly', 'prompt-checkpoints');
+  return getProjectDataPath(workspacePath, 'prompt-checkpoints');
 }
 
 function collectFiles(root: string): string[] {

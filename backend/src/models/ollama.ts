@@ -510,6 +510,7 @@ export async function callOllama(params: {
   signal?: AbortSignal;
   onToken?: (text: string) => void;
   onThinking?: (text: string) => void;
+  onToolStart?: (info: { id: string; name: string }) => void;
   onRetry?: (attempt: number, maxAttempts: number, delayMs: number, error: string) => void;
 }): Promise<ModelResponse> {
   const ollamaMessages: OllamaMessage[] = [
@@ -763,8 +764,17 @@ export async function callOllama(params: {
             if (typeof args === 'string') {
               try { args = JSON.parse(args); } catch { args = {}; }
             }
+            const id = `ollama_tc_${i}_${Date.now()}`;
+            // Signal the tool as starting the instant it's parsed. Ollama can't
+            // stream a tool call's arguments the way Claude does — the whole
+            // call (a large file included) arrives as ONE line at the END of
+            // generation — so unlike Claude there is no live line-count to show.
+            // Firing onToolStart here at least surfaces "Creating <file>…" the
+            // moment the call lands, instead of the chat sitting frozen on the
+            // previous message until the tool result comes back.
+            params.onToolStart?.({ id, name: tc.function.name });
             toolCalls.push({
-              id: `ollama_tc_${i}_${Date.now()}`,
+              id,
               name: tc.function.name,
               args: args as Record<string, unknown>,
             });

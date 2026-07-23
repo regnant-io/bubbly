@@ -59,7 +59,7 @@ export function TitleBar() {
     {
       label: 'File',
       items: [
-        { label: 'New Chat Session', command: () => { store.clearMessages(); store.setCurrentSessionId(null); store.setActivePanel('chat'); } },
+        { label: 'New Chat Session', command: () => { store.resetThreadState(); store.setCurrentSessionId(null); store.setActivePanel('chat'); } },
         { label: 'Open Folder…', action: 'open-folder', hint: 'Ctrl+O', separatorAfter: true },
         { label: 'Settings', panel: 'settings', hint: 'Ctrl+,', separatorAfter: true },
         { label: 'Exit', action: 'quit' },

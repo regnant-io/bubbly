@@ -9,6 +9,7 @@ import {
   approveSpecPhase,
   addTaskToSpec,
   addSubTasks,
+  getSpecsDir,
 } from './specs';
 
 jest.mock('../../utils/logger', () => ({
@@ -23,15 +24,19 @@ describe('staged three-document spec workflow', () => {
 
   beforeEach(() => {
     ws = fs.mkdtempSync(path.join(os.tmpdir(), 'bubbly-staged-'));
+    // Specs now live OUTSIDE the project; keep that external store inside the
+    // temp workspace so the test is self-contained and asserts the real path.
+    process.env.BUBBLY_PROJECTS_ROOT = path.join(ws, '__store');
   });
   afterEach(() => {
+    delete process.env.BUBBLY_PROJECTS_ROOT;
     fs.rmSync(ws, { recursive: true, force: true });
   });
 
   it('starts a staged spec in the requirements phase and writes all three docs', () => {
     const spec = createSpec(ws, { title: 'Auth', type: 'feature', requirements: ['support login'], staged: true });
     expect(spec.phase).toBe('requirements');
-    const dir = path.join(ws, '.bubbly', 'specs', spec.id);
+    const dir = path.join(getSpecsDir(ws), spec.id);
     expect(fs.existsSync(path.join(dir, 'requirements.md'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'design.md'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'tasks.md'))).toBe(true);
@@ -86,7 +91,7 @@ describe('staged three-document spec workflow', () => {
       { title: 'Wire handlers' },
     ]);
     expect(updated!.tasks[0].subTasks).toHaveLength(2);
-    const tasksMd = fs.readFileSync(path.join(ws, '.bubbly', 'specs', spec.id, 'tasks.md'), 'utf8');
+    const tasksMd = fs.readFileSync(path.join(getSpecsDir(ws), spec.id, 'tasks.md'), 'utf8');
     expect(tasksMd).toContain('Define routes');
     expect(tasksMd).toContain('Wire handlers');
   });

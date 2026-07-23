@@ -34,10 +34,10 @@ export function PromptRevertButton({ messageId, checkpointId }: { messageId: str
       // currentSessionId, so we must clear it (and the session-scoped state).
       const remaining = useStore.getState().messages.filter((m) => m.type !== 'status');
       if (remaining.length === 0) {
-        store.clearMessages();
-        store.clearDiffs();
-        store.setAgentPlan([]);
-        store.setWorkerPlan([]);
+        // Reverting the first/only prompt returns to a truly fresh session, so
+        // wipe all thread state through the one canonical path (plus the
+        // checkpoint list, which is thread-scoped but lives outside it).
+        store.resetThreadState();
         store.setPromptCheckpoints([]);
         store.setCurrentSessionId(null);
         try { window.location.hash = '/chat'; } catch { /* ignore */ }

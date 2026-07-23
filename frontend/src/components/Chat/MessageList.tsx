@@ -544,9 +544,23 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
           message and the agent's first token (thinking or text). Once any
           response content exists for this turn, the last visible message is
           no longer 'user' and this disappears on its own. */}
-      {isRunning && visibleMessages.length > 0 && visibleMessages[visibleMessages.length - 1].type === 'user' && (
-        <TwoBubbleLoader />
-      )}
+      {(() => {
+        // "The model is working" indicator. It must cover the QUIET stretches
+        // where the model is generating but nothing is streaming yet — most
+        // importantly the gap after an assistant's prose while it generates a
+        // tool call. With Ollama that gap is the whole "frozen minute" of a big
+        // file write: Ollama can't stream tool-call arguments, so the file
+        // arrives complete at the end, and without this the chat would sit dead.
+        // Hidden when something IS live (tokens streaming, or a tool executing
+        // with its own spinner) so we never double up.
+        if (!isRunning || visibleMessages.length === 0) return null;
+        const last = visibleMessages[visibleMessages.length - 1];
+        const isStreaming = (last.type === 'assistant' || last.type === 'thinking')
+          && (last as { streaming?: boolean }).streaming;
+        const isExecutingTool = last.type === 'tool_call' && !toolResultMap.has(last.callId);
+        if (isStreaming || isExecutingTool) return null;
+        return <TwoBubbleLoader />;
+      })()}
       </div>
       </div>
 

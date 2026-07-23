@@ -34,9 +34,10 @@ describe('spec id safety', () => {
       expect(spec.id).toBeTruthy();
       const read = readSpec(ws, spec.id);
       expect(read?.title).toBe('Demo Feature');
-      // listSpecs should ignore stray files in the specs dir.
-      fs.writeFileSync(path.join(ws, '.bubbly', 'specs', '.DS_Store'), 'x');
-      const { listSpecs } = require('./specs');
+      // listSpecs should ignore stray files in the specs dir. Specs now live in
+      // the EXTERNAL data dir, so drop the stray file there via getSpecsDir.
+      const { listSpecs, getSpecsDir } = require('./specs');
+      fs.writeFileSync(path.join(getSpecsDir(ws), '.DS_Store'), 'x');
       expect(listSpecs(ws).length).toBe(1);
     } finally {
       fs.rmSync(ws, { recursive: true, force: true });

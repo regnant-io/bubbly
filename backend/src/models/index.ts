@@ -62,6 +62,7 @@ export async function callModel(params: {
       signal: params.signal,
       onToken: params.onToken,
       onThinking: params.onThinking,
+      onToolStart: params.onToolStart,
       enableThinking: params.enableThinking,
       retryConfig: params.ollamaRetryConfig,
       onRetry: params.onOllamaRetry,

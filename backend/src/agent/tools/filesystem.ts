@@ -3,12 +3,13 @@ import path from 'path';
 import { createPatch } from 'diff';
 import type { FileDiff } from '../../types';
 import { logger } from '../../utils/logger';
-import { 
-  verifyFileWrite, 
-  verifyFileDeleted, 
-  detectFileType, 
-  validateFileSize 
+import {
+  verifyFileWrite,
+  verifyFileDeleted,
+  detectFileType,
+  validateFileSize
 } from '../../utils/fileVerifier';
+import { getProjectDataDir } from '../projectData';
 
 export function resolveSafePath(workspacePath: string, filePath: string): string {
   if (filePath == null || typeof filePath !== 'string') {
@@ -25,6 +26,22 @@ export function resolveSafePath(workspacePath: string, filePath: string): string
   if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
     throw new Error(`Path escape detected: ${filePath} is outside the workspace.`);
   }
+
+  // Transparent `.bubbly/…` redirect. The agent still addresses its private
+  // state as ".bubbly/specs/…" (its whole mental model, and the system prompt,
+  // are unchanged), but the bytes are routed to the project's EXTERNAL data dir
+  // so nothing is ever written inside the workspace — which is what keeps a
+  // clean-slate scaffold (`npm create vite .`) from failing on a stray folder.
+  // Every file tool funnels through here, so read/write/edit/list all agree on
+  // the same real location. The escape check above already ran on the
+  // workspace-relative form, so `rel` cannot climb out of the project first.
+  const relPosix = rel.replace(/\\/g, '/');
+  if (relPosix === '.bubbly' || relPosix.startsWith('.bubbly/')) {
+    const sub = relPosix.slice('.bubbly'.length).replace(/^\//, '');
+    const dataDir = getProjectDataDir(root);
+    return sub ? path.join(dataDir, sub) : dataDir;
+  }
+
   return resolved;
 }
 

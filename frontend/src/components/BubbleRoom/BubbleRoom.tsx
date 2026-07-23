@@ -70,8 +70,10 @@ export function BubbleRoom() {
       const { messages, plan, sessionChanges, error } = await loadThread(threadId);
       if (error) throw new Error(error);
       const store = useStore.getState();
-      store.clearMessages();
-      store.clearDiffs();
+      // Wipe ALL of the previous thread's state first, then load this thread's.
+      // Without the full reset, a field the old thread set but the new one
+      // doesn't (a pending question, a worker plan, a preview frame) leaked in.
+      store.resetThreadState();
       loadMessages(messages);
       // Restore persisted thread metadata so the plan strip and the Changes
       // panel reflect this thread exactly, even after a refresh.

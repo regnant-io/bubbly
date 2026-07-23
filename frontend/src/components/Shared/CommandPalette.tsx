@@ -113,7 +113,7 @@ export function CommandPalette({ onThreadSelect }: CommandPaletteProps) {
         id: 'new-session',
         label: 'New Chat Session',
         icon: <Plus size={15} />,
-        run: () => { store.clearMessages(); store.setCurrentSessionId(null); store.setActivePanel('chat'); setCommandPaletteOpen(false); },
+        run: () => { store.resetThreadState(); store.setCurrentSessionId(null); store.setActivePanel('chat'); setCommandPaletteOpen(false); },
         keywords: 'reset clear',
       },
       {

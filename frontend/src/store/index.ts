@@ -202,6 +202,9 @@ interface AppState {
   setApprovalStatus: (approvalId: string, status: 'approved' | 'rejected' | 'expired') => void;
   removeLastApprovalPreparing: () => void;
   clearMessages: () => void;
+  /** Reset ALL per-thread state (messages, diffs, plan, tasks, question, run,
+   *  preview frame). Called by every thread switch/new/open/revert path. */
+  resetThreadState: () => void;
   loadMessages: (messages: ChatMessage[]) => void;
   attachCheckpointToLastUserMessage: (checkpointId: string) => void;
   linkCheckpointsToMessages: (checkpoints: Array<{ id: string; prompt: string; createdAt: string }>) => void;
@@ -591,6 +594,33 @@ export const useStore = create<AppState>()(
     }),
 
   clearMessages: () => set({ messages: [], streamingMessageId: null, streamingContent: '' }),
+
+  // The ONE place that wipes every piece of per-thread state. Switching threads,
+  // opening a saved thread, starting a new chat, and reverting the first prompt
+  // all used to clear DIFFERENT subsets by hand — so one path would leave the
+  // previous thread's plan strip up, another its diffs, another a stale pending
+  // question. Anything scoped to a single conversation is reset here, and every
+  // entry point calls this instead of hand-picking fields. WORKSPACE-scoped
+  // state (settings, workspacePath, the specs list, panel layout) is deliberately
+  // left alone — it isn't the thread's.
+  resetThreadState: () =>
+    set({
+      messages: [],
+      streamingMessageId: null,
+      streamingContent: '',
+      pendingDiffs: [],
+      agentPlan: [],
+      workerPlan: [],
+      taskProgress: {},
+      pendingQuestion: null,
+      // A half-finished run must not appear to continue into the new thread.
+      isRunning: false,
+      runStartedAt: null,
+      ollamaRetryStatus: null,
+      // Preview frames belong to the thread that produced them.
+      previewFrame: null,
+      contextUsage: null,
+    }),
 
   loadMessages: (messages) => set({ messages, streamingMessageId: null, streamingContent: '' }),
 

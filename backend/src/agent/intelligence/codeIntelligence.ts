@@ -21,6 +21,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { getProjectDataPath } from '../projectData';
 import { logger } from '../../utils/logger';
 import {
   extractSymbols,
@@ -100,8 +101,9 @@ interface PersistedIndex {
 }
 
 function cacheFilePath(abs: string): string {
-  // `.bubbly` is already in DEFAULT_EXCLUDES, so the cache never indexes itself.
-  return path.join(abs, '.bubbly', 'code-index.json');
+  // The index now lives OUTSIDE the project (see projectData), so a huge
+  // generated index never pollutes the workspace or blocks clean-slate tools.
+  return getProjectDataPath(abs, 'code-index.json');
 }
 
 /** Load a previously persisted index, or null if absent/stale/unreadable. */

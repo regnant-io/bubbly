@@ -103,6 +103,11 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
       const response = await fetch('/api/sessions', { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to delete threads');
       setThreads([]);
+      // The active thread is now gone — clear its transcript/plan/diffs so the
+      // UI doesn't keep showing a conversation that no longer exists.
+      const store = useStore.getState();
+      store.resetThreadState();
+      store.setCurrentSessionId(null);
     } catch (err) {
       console.error('Failed to delete threads:', err);
       alert(err instanceof Error ? err.message : 'Failed to delete threads');
@@ -124,7 +129,14 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
       if (!response.ok) {
         throw new Error(`Failed to delete thread: ${response.statusText}`);
       }
-      
+
+      // If we just deleted the thread currently on screen, reset to a clean
+      // slate — otherwise its messages/plan/diffs linger over a dead session.
+      if (threadId === useStore.getState().currentSessionId) {
+        const store = useStore.getState();
+        store.resetThreadState();
+        store.setCurrentSessionId(null);
+      }
       // Reload threads after deletion
       loadThreads(true);
     } catch (err) {

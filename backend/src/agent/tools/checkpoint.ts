@@ -10,6 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { getProjectDataPath } from '../projectData';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../utils/logger';
 
@@ -18,7 +19,7 @@ const MAX_FILE_BYTES = 1_000_000;
 const MAX_TOTAL_BYTES = 50_000_000; // don't snapshot huge trees
 
 function checkpointsDir(workspacePath: string): string {
-  return path.join(workspacePath, '.bubbly', 'checkpoints');
+  return getProjectDataPath(workspacePath, 'checkpoints');
 }
 
 interface CheckpointMeta {

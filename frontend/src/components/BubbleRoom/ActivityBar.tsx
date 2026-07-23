@@ -31,17 +31,14 @@ export function ActivityBar() {
   const {
     activePanel, setActivePanel, isRunning,
     setCommandPaletteOpen,
-    clearMessages, setCurrentSessionId, setCurrentThreadType,
+    setCurrentSessionId, setCurrentThreadType,
   } = useStore();
 
   const handleNewSession = () => {
-    clearMessages();
+    useStore.getState().resetThreadState();
     setCurrentSessionId(null);
     setCurrentThreadType('vibe_coding');
     try { window.location.hash = '/chat'; } catch { /* ignore */ }
-    useStore.getState().setAgentPlan([]);
-    useStore.getState().setPendingQuestion(null);
-    useStore.getState().clearTaskProgress();
     setActivePanel('chat');
   };
 

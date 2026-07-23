@@ -11,13 +11,36 @@ describe('Filesystem Tools Integration', () => {
     // Create a temporary directory for testing
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bubbly-fs-integration-'));
     workspacePath = testDir;
+    // Keep the external project-data store inside the temp dir so redirects are
+    // exercised without touching the real ~/.bubbly.
+    process.env.BUBBLY_PROJECTS_ROOT = path.join(testDir, '__store');
   });
 
   afterEach(() => {
+    delete process.env.BUBBLY_PROJECTS_ROOT;
     // Clean up test directory
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
+  });
+
+  describe('.bubbly redirect (external project data)', () => {
+    it('writes .bubbly/* OUTSIDE the workspace, and reads it back at the same virtual path', async () => {
+      await writeFile(workspacePath, '.bubbly/specs/s1/requirements.md', '# Reqs');
+      // The virtual path round-trips for the agent…
+      expect(await readFile(workspacePath, '.bubbly/specs/s1/requirements.md')).toBe('# Reqs');
+      // …but nothing landed inside the project, so a clean-slate scaffold is safe.
+      expect(fs.existsSync(path.join(workspacePath, '.bubbly'))).toBe(false);
+      // Only the file the test created is in the workspace (no .bubbly).
+      expect(fs.readdirSync(workspacePath).filter((n) => n !== '__store')).toEqual([]);
+    });
+
+    it('routes an absolute in-project .bubbly path to the same external place', async () => {
+      await writeFile(workspacePath, '.bubbly/note.txt', 'via-relative');
+      const abs = path.join(workspacePath, '.bubbly', 'note.txt');
+      // Addressing the same thing by absolute path reads the redirected file.
+      expect(await readFile(workspacePath, abs)).toBe('via-relative');
+    });
   });
 
   describe('File Type Detection', () => {

@@ -22,6 +22,7 @@ import path from 'path';
 import { getSetting } from '../../db/index';
 import { logger } from '../../utils/logger';
 import { isPreviewClientAvailable, hasEverSeenCapableClient, runPreviewAction } from './previewBridge';
+import { getProjectDataPath } from '../projectData';
 
 export type BrowserAction =
   | 'open' | 'goto' | 'reload' | 'click' | 'type' | 'press' | 'scroll' | 'wait'
@@ -282,7 +283,9 @@ function sanitizePreviewUrl(url: unknown): string | null {
 }
 
 export function getBrowserMetaPath(workspacePath: string): string {
-  return path.join(workspacePath, '.bubbly', 'browser-meta.json');
+  // Lives OUTSIDE the project (see projectData) so its presence never blocks a
+  // clean-slate scaffold like `npm create vite .`.
+  return getProjectDataPath(workspacePath, 'browser-meta.json');
 }
 
 /** Persist the last-known preview URL into the project's meta so the Start

@@ -180,6 +180,30 @@ export function BubblyPreview() {
     setTimeout(poll, 1000);
   };
 
+  // Keep the Start/Stop button honest about the ACTUAL server. The server can
+  // die out from under the preview — the agent runs stop_process, the dev
+  // server crashes, or the run is stopped — and nothing pushed that to us, so
+  // the button used to stay stuck on "Stop" over a server that was already gone.
+  // While we believe a server is up, poll its real status; the moment it's no
+  // longer running, fall back to idle so the button flips to Start and the dead
+  // page stops being presented as live.
+  useEffect(() => {
+    if (!workspacePath) return;
+    if (serverState === 'idle') return;
+    let cancelled = false;
+    const check = async () => {
+      const s = await previewServerStatus(workspacePath).catch(() => null);
+      if (cancelled || !s) return;
+      if (!s.running && serverState === 'running') {
+        setServerState('idle');
+        setBrowserMeta((m) => ({ ...m, running: false }));
+        setLoadError('The dev server stopped. Press Start to run it again.');
+      }
+    };
+    const t = setInterval(check, 2500);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [workspacePath, serverState]);
+
   // "Stop" — kill the dev server (if one is running for this project) AND tear
   // down the live preview. The button toggles between Start and Stop.
   const stopPreview = async () => {

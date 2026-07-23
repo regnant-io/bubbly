@@ -3,9 +3,10 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { Spec, SpecTask, SpecProperty, SpecSubTask, SpecPhase } from '../../types';
 import { logger } from '../../utils/logger';
+import { getProjectDataPath } from '../projectData';
 
 export function getSpecsDir(workspacePath: string): string {
-  return path.join(workspacePath, '.bubbly', 'specs');
+  return getProjectDataPath(workspacePath, 'specs');
 }
 
 /**

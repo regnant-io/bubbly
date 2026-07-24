@@ -695,11 +695,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'watch',
     description:
-      'Wait for something slow WITHOUT polling. Use this instead of calling get_process_output over and over — every poll is a full round-trip that costs tokens; a watcher costs one call no matter how long the wait.\n' +
-      'USE IT FOR: a build/test run finishing, a dev server becoming reachable, a compile step printing "ready", a file appearing.\n' +
-      'By default it BLOCKS until the condition is met, then returns the outcome AND the relevant output — so you usually do not need a follow-up read.\n' +
-      'Set detached:true to register the watcher and keep working; collect it later with action "collect". Detached results survive even if the current run ends.\n' +
-      'AFTER run_background, the right move is almost always a watch on it — never a retry loop.',
+      'Be told when something finishes, WITHOUT polling. Use sparingly — only when you genuinely cannot continue until the outcome is known.\n' +
+      'DO NOT call this just because you started a background process. Starting a dev server or a build does not require waiting on it; carry on with other work.\n' +
+      'TWO MODES:\n' +
+      '  • Short gate (default): blocks, but is HARD-CAPPED AT 60 SECONDS because it freezes the session. Only for a quick precondition, e.g. a port opening before you load the page.\n' +
+      '  • detached:true — registers the watcher and returns immediately. Use this for anything slow (builds, installs, test suites). Then FINISH YOUR TURN; you will be resumed with the result when it settles. Requesting a timeout over 60s automatically becomes detached.\n' +
+      'Detached results survive the end of the run that created them.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -862,6 +863,11 @@ function fileToToolImage(filePath: string): ToolResultImage | undefined {
  * marked explicitly so the model knows it is reading an excerpt rather than
  * silently reasoning over a truncated log.
  */
+/** Hard ceiling on a BLOCKING watch. A blocking wait holds the entire session,
+ *  so it may only ever be used for a short gate (a port coming up, a file
+ *  appearing). Longer waits are forced detached. */
+const BLOCKING_WATCH_CAP_MS = 60_000;
+
 const OUTPUT_HEAD_CHARS = 2_500;
 const OUTPUT_TAIL_CHARS = 8_000;
 const OUTPUT_CLAMP_AT = OUTPUT_HEAD_CHARS + OUTPUT_TAIL_CHARS + 500;
@@ -1112,7 +1118,11 @@ export async function executeTool(
   toolName: string,
   args: Record<string, unknown>,
   workspacePath: string,
-  onEvent?: (event: { type: string; content: string }) => void
+  onEvent?: (event: { type: string; content: string }) => void,
+  /** Aborted when the user presses Stop. Tools that WAIT (rather than compute)
+   *  must honour it — without this, an in-flight tool call kept running after
+   *  Stop and the session appeared frozen until its own timeout expired. */
+  signal?: AbortSignal
 ): Promise<ToolExecutionResult> {
   // Clean up tool name - Ollama sometimes prefixes with "function:"
   const cleanToolName = toolName.replace(/^function:/, '');
@@ -1291,8 +1301,9 @@ export async function executeTool(
           // loop. Point the agent at the watcher instead of letting it spin.
           const idle = r.status === 'running' && !r.output && !r.awaitingInput;
           const pollNote = idle
-            ? `\n\nNothing new yet. Do NOT keep re-reading this — call watch(condition:"process_exit", process_id:"${args.process_id}") ` +
-              `to be told the moment it finishes, or watch(condition:"output_match", pattern:"…") if it is a server that never exits.`
+            ? `\n\nNothing new yet. Do NOT keep re-reading this in a loop. Get on with other work; if you truly cannot proceed without ` +
+              `the outcome, register watch(condition:"process_exit", process_id:"${args.process_id}", detached:true) and end your turn — ` +
+              `you'll be resumed when it finishes.`
             : '';
           result = { result: `${header}\n${clampOutput(r.output || '(no new output)', { hint: 'Use lines:N for just the tail.' })}${waitNote}${pollNote}` };
         }
@@ -1391,20 +1402,44 @@ export async function executeTool(
           break;
         }
 
+        // A BLOCKING wait parks the whole session, so it is hard-capped at
+        // BLOCKING_WATCH_CAP_MS regardless of what was asked for. Anything
+        // genuinely long must be detached — the agent ends its turn and gets
+        // woken when the watcher settles, instead of holding the session (and
+        // the Stop button) hostage for minutes.
+        const requestedMs = args.timeout_seconds ? Number(args.timeout_seconds) * 1000 : undefined;
+        const detached = args.detached === true
+          || (requestedMs !== undefined && requestedMs > BLOCKING_WATCH_CAP_MS);
+
         const created = watchers.create(condition, {
-          timeoutMs: args.timeout_seconds ? Number(args.timeout_seconds) * 1000 : undefined,
+          timeoutMs: detached ? requestedMs : Math.min(requestedMs ?? BLOCKING_WATCH_CAP_MS, BLOCKING_WATCH_CAP_MS),
         });
         if (!created.ok) { result = { result: `FAILED: ${created.error}` }; break; }
 
-        if (args.detached) {
-          result = { result: `Watcher ${created.id} is running in the background (${describeCondition(condition)}). Keep working; call watch with action "collect" to pick up the result.` };
+        if (detached) {
+          result = { result:
+            `Watcher ${created.id} is running in the background (${describeCondition(condition)}).\n` +
+            `Do NOT wait for it — finish what you can and end your turn. You'll be resumed with the result when it settles.` };
           break;
         }
 
-        // Blocking wait. This is the token saving: the agent is parked here, not
-        // looping. Nothing is billed while the backend waits.
-        const waited = await watchers.wait(created.id);
-        result = { result: waited ? formatWatchResult(waited, describeCondition(condition)) : 'FAILED: watcher disappeared.' };
+        // Short, cancellable wait. Racing the abort signal is what makes Stop
+        // work: previously this await ignored it entirely and the session stayed
+        // frozen until the watcher's own timeout fired.
+        const waited = await Promise.race([
+          watchers.wait(created.id),
+          new Promise<null>((resolve) => {
+            if (!signal) return;
+            if (signal.aborted) { resolve(null); return; }
+            signal.addEventListener('abort', () => resolve(null), { once: true });
+          }),
+        ]);
+        if (!waited) {
+          watchers.cancel(created.id);
+          result = { result: 'Watch cancelled.' };
+          break;
+        }
+        result = { result: formatWatchResult(waited, describeCondition(condition)) };
         break;
       }
 
@@ -1668,8 +1703,7 @@ export async function executeTool(
             result:
               `${note}\n` +
               `This command does not exit on its own (it looks like a dev server / watcher), so it is running in the background and did NOT block.\n` +
-              `To know when it is READY, call watch(condition:"output_match", process_id:"${r.id}", pattern:"ready in|compiled successfully|listening on") — ` +
-              `do not poll get_process_output in a loop, that costs a round-trip each time and tells you nothing.\n` +
+              `Carry on with your work — do NOT wait on it, and do not poll get_process_output in a loop.\n` +
               `Use get_process_output for a one-off look at its logs, and stop_process to terminate it.\n` +
               `If you actually needed a one-shot run, call run_command again with foreground:true.`,
           };

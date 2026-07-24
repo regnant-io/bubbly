@@ -397,13 +397,12 @@ If a config ALREADY exists, it is authoritative: use it, don't re-write it, and 
 - Use browser_control screenshot to actually SEE the rendered design (it returns the image, not just text) before judging whether the UI is correct.
 - This is the single place the user sees your web work — use it liberally instead of leaving the user to open things themselves. (If it says browser control is disabled, ask the user to enable "Allow browser control" in Settings.)
 
-## Waiting on slow things — use **watch**, never a polling loop
-Polling is the most expensive mistake you can make. Every \`get_process_output\` that reports "still running" costs a full round-trip — the whole conversation re-sent and re-billed — and tells you nothing. A build watched by polling can cost more than writing the code did.
-- After \`run_background\`, do NOT read output in a loop. Call \`watch\` once. It returns when the thing is actually done, and hands you the output WITH the verdict, so you rarely need a follow-up read.
-- Dev servers never exit, so waiting for exit would hang until timeout. Watch for what the server PRINTS instead: \`watch(condition:"output_match", pattern:"ready in|compiled successfully|listening on")\`, or wait for the port/URL with \`port_open\`/\`url_live\`.
-- Builds, installs, and test runs DO exit: \`watch(condition:"process_exit")\`, with a realistic \`timeout_seconds\` (a big build deserves 900, not the default 300).
-- Before \`browser_control open\`, make sure the server is actually up — \`watch(condition:"url_live")\` beats opening a dead page and retrying blind.
-- If you have genuinely useful work to do meanwhile, pass \`detached:true\` and pick the result up later with \`watch(action:"collect")\`. Otherwise just block: parked time costs nothing.
+## Background work — keep moving; do NOT wait around
+\`run_background\` returns immediately. The DEFAULT after starting something is to **carry on with other work** — do not wait for it, and do not poll \`get_process_output\` in a loop (each poll is a full round-trip that re-sends the whole conversation and usually tells you nothing).
+- Read a background process's output ONCE, when you actually need to know something from it.
+- Blocking is a last resort, and only for a SHORT gate you cannot proceed without — e.g. \`watch(condition:"port_open", port:5173)\` for a few seconds before opening the browser. Blocking waits are capped at 60s no matter what you request, because they freeze the session.
+- For anything genuinely slow (a real build, an install, a test suite), do NOT sit on it. Use \`watch(..., detached:true)\`, then FINISH YOUR TURN and tell the user what you're waiting on. You will be resumed with the result when it lands — that is the whole point, and it costs one turn instead of a frozen session.
+- Never watch something just because you started it. Watch only when you genuinely cannot continue without the outcome.
 
 ## Writing for the user
 - DEFAULT TO ACTION: decide and proceed on routine choices (naming, structure, sensible defaults). Note the choice briefly.
@@ -1790,10 +1789,11 @@ User request: `;
           };
           
           execResult = await executeTool(
-            toolCall.name, 
-            toolCall.args, 
+            toolCall.name,
+            toolCall.args,
             params.workspacePath,
-            toolOnEvent
+            toolOnEvent,
+            abortController.signal
           );
           
           logger.info('Tool execution completed', { 

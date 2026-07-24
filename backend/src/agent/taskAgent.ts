@@ -88,7 +88,13 @@ ${targetFiles && targetFiles.length > 0 ? `Likely files: ${targetFiles.join(', '
   const messages: Message[] = [{ role: 'user', content: kickoff }];
   // Workers get the full toolset EXCEPT delegation/ask — they do the work
   // directly and cannot spawn further workers (prevents infinite nesting).
-  const workerTools = TOOL_DEFINITIONS.filter((t) => t.name !== 'delegate_task' && t.name !== 'delegate_parallel' && t.name !== 'ask_user');
+  // Workers do BOUNDED work and report back. They deliberately do NOT get
+  // `watch`: a worker blocking on a watcher also blocks the lead that is
+  // awaiting it, and the worker's isStopped() is only checked between
+  // iterations — never during a tool call — so the whole run became
+  // unstoppable. Waiting on slow things is the lead's job.
+  const workerTools = TOOL_DEFINITIONS.filter((t) =>
+    t.name !== 'delegate_task' && t.name !== 'delegate_parallel' && t.name !== 'ask_user' && t.name !== 'watch');
   const filesTouched = new Set<string>();
   const diffsByPath = new Map<string, FileDiff>();
   const recentSigs: string[] = [];

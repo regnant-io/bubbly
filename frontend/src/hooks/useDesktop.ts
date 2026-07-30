@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useStore } from '../store';
+import { initNotificationFocusTracking } from '../utils/notifications';
 
 /** True when running inside the Bubbly Desktop (Electron) shell. */
 export function isDesktop(): boolean {
@@ -10,6 +11,7 @@ export function isDesktop(): boolean {
  * Wires the native desktop shell into the app:
  *  - menu navigation (File/View accelerators) switches the active panel
  *  - "Open Folder…" from the native menu updates the active workspace
+ *  - window focus tracking, so notifications only fire when you've switched away
  *
  * No-op in the browser, so it is always safe to call.
  */
@@ -20,6 +22,8 @@ export function useDesktop(): void {
   useEffect(() => {
     const api = window.bubblyDesktop;
     if (!api) return;
+
+    const offFocus = initNotificationFocusTracking();
 
     const validPanels = ['chat', 'threads', 'files', 'specs', 'audit', 'settings', 'workspace'];
 
@@ -38,6 +42,7 @@ export function useDesktop(): void {
     return () => {
       offNav();
       offWs();
+      offFocus();
     };
   }, [setActivePanel, setWorkspacePath]);
 }

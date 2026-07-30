@@ -32,6 +32,23 @@ contextBridge.exposeInMainWorld('bubblyDesktop', {
   /** Open a URL in the user's default external browser. */
   openExternal: (url) => ipcRenderer.invoke('bubbly:open-external', url),
 
+  /**
+   * Show a native OS notification. The main process suppresses it when the
+   * window already has focus (pass `force` to override, e.g. a settings test).
+   * Resolves to { shown, reason }.
+   */
+  notify: (opts) => ipcRenderer.invoke('bubbly:notify', opts),
+
+  /** Whether the app window currently has OS focus. */
+  isWindowFocused: () => ipcRenderer.invoke('bubbly:is-focused'),
+
+  /** Subscribe to window focus/blur, to know when the user switched away. */
+  onFocusChanged: (callback) => {
+    const handler = (_event, focused) => callback(!!focused);
+    ipcRenderer.on('bubbly:focus-changed', handler);
+    return () => ipcRenderer.removeListener('bubbly:focus-changed', handler);
+  },
+
   /** Subscribe to "navigate to panel" events from the native menu. */
   onNavigate: (callback) => {
     const handler = (_event, panel) => callback(panel);

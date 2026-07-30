@@ -312,6 +312,23 @@ filesRouter.get('/find', (req, res) => {
   }
 });
 
+/**
+ * GET /api/files/git-stats?workspace=...
+ * Working-tree change totals for the composer's diff pill. Always 200: when git
+ * is missing or the folder isn't a repo the pill simply hides itself.
+ */
+filesRouter.get('/git-stats', (req, res) => {
+  try {
+    const ws = getWorkspace(req.query);
+    const { getGitChangeStats } = require('../agent/tools/git');
+    res.json(getGitChangeStats(ws));
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logger.debug('Git stats unavailable', { error: errorMsg });
+    res.json({ available: false, branch: null, filesChanged: 0, insertions: 0, deletions: 0, untracked: 0 });
+  }
+});
+
 /** List per-prompt checkpoints (for the "undo last N prompts" UI). */
 filesRouter.get('/checkpoints', (req, res) => {
   try {

@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Send, Square, Paperclip, X, FileText } from '../Shared/icons';
 import { ModelSelector } from './ModelSelector';
 import { WorkspaceSelector } from './WorkspaceSelector';
+import { GitDiffCounter } from './GitDiffCounter';
 import { ThreadTypeSelector } from './ThreadTypeSelector';
 import { ContextGauge } from './ContextGauge';
 import { useStore } from '../../store';
@@ -207,10 +208,17 @@ export function ChatInput({ onSend, onStop, isRunning, disabled, placeholder }: 
       )}
 
       <div
-        className={`flex flex-col rounded-xl border bg-surface-1 shadow-sm transition-colors ${
+        className={`relative mt-3.5 flex flex-col rounded-xl border bg-surface-1 shadow-sm transition-colors ${
           disabled ? 'border-border opacity-50' : 'border-border focus-within:border-accent/50'
         }`}
       >
+        {/* Floating pills straddling the composer's top edge: which folder we're
+            working in, and how much has changed in it. */}
+        <div className="absolute -top-3.5 left-3 z-10 flex items-center gap-1.5">
+          <WorkspaceSelector variant="pill" />
+          <GitDiffCounter />
+        </div>
+
         {/* Text row */}
         <div className="flex items-end gap-2">
           <input
@@ -273,11 +281,10 @@ export function ChatInput({ onSend, onStop, isRunning, disabled, placeholder }: 
           </div>
         </div>
 
-        {/* Toolbar row: workspace + model + history (left), hint (right) */}
+        {/* Toolbar row: model + mode (left), context gauge (right). The workspace
+            lives in the floating pill above instead. */}
         <div className="flex items-center justify-between px-1.5 pb-1.5 -mt-0.5 gap-2">
           <div className="flex items-center gap-0.5 min-w-0">
-            <WorkspaceSelector />
-            <span className="text-text-dim/40 select-none">·</span>
             <ModelSelector />
             <span className="text-text-dim/40 select-none">·</span>
             <ThreadTypeSelector />

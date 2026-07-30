@@ -54,6 +54,8 @@ export interface Settings {
   skills: string;
   computerControlEnabled: string;
   browserControlEnabled: string;
+  desktopNotifications: string;
+  notifyOnCommandFailure: string;
 }
 
 export interface FileDiff {
@@ -326,6 +328,18 @@ export interface BubblyDesktopApi {
   menuAction: (action: string) => Promise<unknown>;
   onNavigate: (cb: (panel: string) => void) => () => void;
   onWorkspaceChanged: (cb: (folderPath: string) => void) => () => void;
+  /** Show a native OS notification. Suppressed by the shell when focused, unless `force`. */
+  notify: (opts: {
+    title: string;
+    body: string;
+    urgency?: 'normal' | 'critical';
+    silent?: boolean;
+    /** Also flash the taskbar button until the user returns. */
+    attention?: boolean;
+    force?: boolean;
+  }) => Promise<{ shown: boolean; reason?: string }>;
+  isWindowFocused: () => Promise<boolean>;
+  onFocusChanged: (cb: (focused: boolean) => void) => () => void;
 }
 
 declare global {

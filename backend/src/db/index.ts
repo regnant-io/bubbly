@@ -144,7 +144,9 @@ function initSchema(db: Database.Database): void {
       ('mcpServers', '[]'),
       ('skills', '[]'),
       ('computerControlEnabled', 'false'),
-      ('browserControlEnabled', 'false');
+      ('browserControlEnabled', 'false'),
+      ('desktopNotifications', 'true'),
+      ('notifyOnCommandFailure', 'false');
   `);
 }
 

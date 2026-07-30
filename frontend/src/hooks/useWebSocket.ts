@@ -4,7 +4,26 @@ import { publishTerminalData, renameTerminalBuffer } from '../utils/terminalBus'
 import { fetchFileContent } from './useApi';
 import { runPreviewControl } from '../utils/previewController';
 import { registerPreviewReadySender } from '../utils/previewHostBus';
+import { notifyDesktop, formatDuration, summarize } from '../utils/notifications';
 import type { WSServerEvent, ChatMessage } from '../types';
+
+/** Short project name, so a toast says WHICH workspace it is about. */
+function workspaceLabel(): string {
+  const p = useStore.getState().workspacePath;
+  if (!p) return 'Bubbly';
+  const parts = p.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || 'Bubbly';
+}
+
+/** The agent's closing words, used as the body of a "run finished" toast. */
+function lastAssistantText(): string {
+  const msgs = useStore.getState().messages;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m.type === 'assistant' && m.content) return m.content;
+  }
+  return '';
+}
 
 /**
  * When the agent changes files, refresh any of those files that the user has
@@ -370,14 +389,28 @@ export function useWebSocket() {
         store.upsertAgentTerminal(event.id, { data: event.content });
         break;
 
-      case 'terminal_end':
+      case 'terminal_end': {
         store.finalizeTerminal(event.id, event.exitCode, event.duration);
         store.upsertAgentTerminal(event.id, {
           alive: false,
           exitCode: event.exitCode,
           data: `\n[exited with code ${event.exitCode}]\n`,
         });
+        // Off by default: a failing command mid-run is routine (the agent
+        // usually fixes it and carries on), so this would be noise for most
+        // people. Opt in when you're babysitting builds from another window.
+        if (event.exitCode !== 0 && useStore.getState().settings?.notifyOnCommandFailure === 'true') {
+          const msg = useStore.getState().messages.find(
+            (m): m is Extract<ChatMessage, { type: 'terminal' }> => m.type === 'terminal' && m.terminalId === event.id
+          );
+          void notifyDesktop({
+            title: `Command failed — ${workspaceLabel()}`,
+            body: `${summarize(msg?.command, 80) || 'A command'} exited with code ${event.exitCode}.`,
+            urgency: 'critical',
+          });
+        }
         break;
+      }
 
       case 'approval_preparing':
         store.addMessage({
@@ -400,6 +433,14 @@ export function useWebSocket() {
           preview: event.preview,
           status: 'pending',
           timestamp: Date.now(),
+        });
+        // The run is BLOCKED on the user — the most valuable thing to surface
+        // when they've switched away (approvals time out after 5 minutes).
+        void notifyDesktop({
+          title: `Approval needed — ${workspaceLabel()}`,
+          body: `Bubbly is waiting to run ${event.tool}.`,
+          urgency: 'critical',
+          attention: true,
         });
         break;
 
@@ -488,16 +529,31 @@ export function useWebSocket() {
         store.reconcilePlanOnStop();
         finalizeThinking();
         flushStreamFinal();
+        // A failed run is exactly what you want to hear about from another app.
+        void notifyDesktop({
+          title: `Run failed — ${workspaceLabel()}`,
+          body: summarize(event.message, 160) || 'The agent stopped with an error.',
+          urgency: 'critical',
+          attention: true,
+        });
         break;
 
-      case 'done':
+      case 'done': {
         store.setIsRunning(false);
         store.stopRunTimer();
         store.setOllamaRetryStatus(null);
         store.reconcilePlanOnStop();
         finalizeThinking();
         flushStreamFinal();
+        const elapsed = formatDuration(useStore.getState().lastRunDurationMs);
+        const closing = summarize(lastAssistantText(), 120);
+        void notifyDesktop({
+          title: `Run finished — ${workspaceLabel()}`,
+          body: [elapsed, closing || 'Task complete.'].filter(Boolean).join(' · '),
+          attention: true,
+        });
         break;
+      }
 
       // --- Multi-agent task progress (spec mode dispatch) ---
       case 'task_dispatched':
@@ -605,6 +661,12 @@ export function useWebSocket() {
 
       case 'question_asked':
         store.setPendingQuestion({ questionId: event.questionId, question: event.question, options: event.options });
+        void notifyDesktop({
+          title: `Bubbly has a question — ${workspaceLabel()}`,
+          body: summarize(event.question, 160),
+          urgency: 'critical',
+          attention: true,
+        });
         break;
 
       // --- Interactive terminals ---

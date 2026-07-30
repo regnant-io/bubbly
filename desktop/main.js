@@ -14,7 +14,7 @@
  * the native better-sqlite3 module keeps working without an Electron rebuild.
  */
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, dialog, ipcMain, shell } = require('electron');
 const { spawn, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -411,9 +411,33 @@ function createWindow(port) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
+  // Tell the renderer when the app gains/loses OS focus, so it knows whether
+  // the user has switched away and a run-finished toast is warranted.
+  const sendFocus = (focused) => {
+    if (focused) {
+      try { mainWindow.flashFrame(false); } catch { /* ignore */ }
+    }
+    try { mainWindow.webContents.send('bubbly:focus-changed', focused); } catch { /* ignore */ }
+  };
+  mainWindow.on('focus', () => sendFocus(true));
+  mainWindow.on('blur', () => sendFocus(false));
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+/** Bring the window back to the front (notification click, taskbar nudge). */
+function focusMainWindow() {
+  if (!mainWindow) return;
+  try {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+    mainWindow.flashFrame(false);
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Open the native folder picker and return the selected absolute path. */
@@ -589,6 +613,48 @@ ipcMain.handle('bubbly:get-info', () => ({
 }));
 
 /**
+ * Show a native OS notification (Windows Action Center toast, macOS banner).
+ *
+ * The window's focus state is the gate, and it is checked HERE rather than in
+ * the renderer: `document.hasFocus()` can still report true for a background
+ * window in some compositors, and a toast for something the user is already
+ * watching is pure noise. `force` exists only for the settings "test" button.
+ *
+ * Clicking the toast raises the window, so a notification is always a way back
+ * into the run it is telling you about.
+ */
+ipcMain.handle('bubbly:notify', (_event, opts) => {
+  try {
+    if (!Notification.isSupported()) return { shown: false, reason: 'unsupported' };
+    const focused = !!(mainWindow && mainWindow.isFocused());
+    if (focused && !opts?.force) return { shown: false, reason: 'focused' };
+
+    const notification = new Notification({
+      title: String(opts?.title || 'Bubbly'),
+      body: String(opts?.body || ''),
+      icon: path.join(__dirname, 'assets', 'icon.png'),
+      silent: !!opts?.silent,
+      urgency: opts?.urgency === 'critical' ? 'critical' : 'normal',
+    });
+    notification.on('click', focusMainWindow);
+    notification.show();
+
+    // Windows only shows a toast for a few seconds; a flashing taskbar button
+    // keeps the signal alive until the user actually comes back.
+    if (opts?.attention && mainWindow) {
+      try { mainWindow.flashFrame(true); } catch { /* ignore */ }
+    }
+    return { shown: true };
+  } catch (err) {
+    log('Failed to show notification:', err && err.message ? err.message : String(err));
+    return { shown: false, reason: 'error' };
+  }
+});
+
+/** Whether the app window currently has OS focus (renderer-side gating). */
+ipcMain.handle('bubbly:is-focused', () => !!(mainWindow && mainWindow.isFocused()));
+
+/**
  * Recolor the native window-control overlay (min/max/close) so it matches the
  * current app theme instead of a hardcoded dark strip. Called by the renderer
  * whenever the resolved theme changes. No-op where the overlay isn't supported.
@@ -685,6 +751,13 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // Windows ties toast notifications to an Application User Model ID. Without
+    // one matching the installed shortcut, toasts are silently dropped (or show
+    // up attributed to "electron.app.Electron"). This must match the NSIS
+    // appId in package.json.
+    if (process.platform === 'win32') {
+      try { app.setAppUserModelId('dev.bubbly.desktop'); } catch { /* ignore */ }
+    }
     buildMenu();
     try {
       const port = await startBackend();

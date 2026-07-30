@@ -7,6 +7,7 @@ import {
   Sun, Moon, Monitor, Folder, Code2, SlidersHorizontal, Server, Puzzle, ShieldCheck, Palette,
 } from '../Shared/icons';
 import { isDesktop } from '../../hooks/useDesktop';
+import { notifyDesktop } from '../../utils/notifications';
 import { McpSettings } from './McpSettings';
 import { SkillsSettings } from './SkillsSettings';
 
@@ -544,6 +545,39 @@ export function SettingsPanel() {
                     checked={form.revealRightPanelOnDiff === 'true'}
                     onChange={(v) => update('revealRightPanelOnDiff', v)}
                   />
+                </Section>
+
+                <Section title="Notifications">
+                  <Toggle
+                    label="Desktop notifications"
+                    hint="Get an OS notification when a run finishes, fails, or needs your approval — only while Bubbly is in the background."
+                    checked={form.desktopNotifications !== 'false'}
+                    onChange={(v) => update('desktopNotifications', v)}
+                  />
+                  <Toggle
+                    label="Notify on failed commands"
+                    hint="Also notify when an individual command the agent ran exits non-zero. Noisy: the agent usually recovers on its own."
+                    checked={form.notifyOnCommandFailure === 'true'}
+                    onChange={(v) => update('notifyOnCommandFailure', v)}
+                  />
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void notifyDesktop({
+                        title: 'Bubbly notifications are on',
+                        body: 'This is what you’ll see when a run finishes while you’re in another app.',
+                        force: true,
+                      })}
+                      className="px-3 py-1.5 rounded-lg border border-border text-sm text-text-muted hover:border-border-bright hover:text-text transition-colors"
+                    >
+                      Send a test notification
+                    </button>
+                    <span className="text-xs text-text-dim">
+                      {isDesktop()
+                        ? 'Delivered through Windows notifications.'
+                        : 'In the browser this uses web notifications — your browser may ask for permission.'}
+                    </span>
+                  </div>
                 </Section>
               </>
             )}

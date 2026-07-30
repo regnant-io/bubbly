@@ -11,11 +11,15 @@ function shortName(p: string): string {
 }
 
 /**
- * Workspace shortcut that lives at the left of the input toolbar. Shows the
- * current workspace and a dropdown of recent workspaces to switch between, plus
- * a "Open folder…" action (native picker in desktop) to add a new one.
+ * Workspace shortcut that floats above the composer. Shows the current
+ * workspace and a dropdown of recent workspaces to switch between, plus an
+ * "Open folder…" action (native picker in desktop) to add a new one.
+ *
+ * `variant` only changes the trigger's chrome: 'pill' is the standalone
+ * floating capsule used over the input's top edge; 'inline' is the flat style
+ * for sitting inside a toolbar row.
  */
-export function WorkspaceSelector() {
+export function WorkspaceSelector({ variant = 'inline' }: { variant?: 'pill' | 'inline' }) {
   const { workspacePath, recentWorkspaces, switchWorkspace } = useStore();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -47,12 +51,17 @@ export function WorkspaceSelector() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-text-dim hover:text-text hover:bg-surface-3 transition-colors max-w-[180px]"
+        className={
+          variant === 'pill'
+            ? `flex items-center gap-1.5 rounded-full border bg-surface-2 px-2.5 py-1 text-[11px] shadow-sm
+               transition-colors max-w-[200px] ${open ? 'border-accent/50 text-text' : 'border-border text-text-dim hover:text-text hover:border-border-bright'}`
+            : 'flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-text-dim hover:text-text hover:bg-surface-3 transition-colors max-w-[180px]'
+        }
         title={workspacePath || 'Select a workspace'}
       >
-        <Folder size={13} className="text-amber-agent/70 shrink-0" />
+        <Folder size={variant === 'pill' ? 11 : 13} className="text-amber-agent/70 shrink-0" />
         <span className="truncate">{shortName(workspacePath)}</span>
-        <ChevronDown size={12} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={variant === 'pill' ? 10 : 12} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (

@@ -52,6 +52,31 @@ export async function findFiles(workspace: string, q: string, limit = 20): Promi
   return Array.isArray(data.files) ? data.files : [];
 }
 
+export interface GitChangeStats {
+  /** False when git isn't installed or the workspace isn't a repository. */
+  available: boolean;
+  branch: string | null;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  untracked: number;
+}
+
+const NO_GIT: GitChangeStats = {
+  available: false, branch: null, filesChanged: 0, insertions: 0, deletions: 0, untracked: 0,
+};
+
+/** Working-tree change totals for the composer's git pill. Never throws. */
+export async function fetchGitStats(workspace: string): Promise<GitChangeStats> {
+  try {
+    const res = await fetch(`${BASE}/files/git-stats?workspace=${encodeURIComponent(workspace)}`);
+    if (!res.ok) return NO_GIT;
+    return { ...NO_GIT, ...(await res.json()) };
+  } catch {
+    return NO_GIT;
+  }
+}
+
 export interface PromptCheckpoint {
   id: string;
   sessionId: string;

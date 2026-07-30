@@ -8,8 +8,21 @@ import { RotateCcw, Loader2, AlertCircle } from '../Shared/icons';
  * back to the snapshot taken BEFORE this prompt, then clears this message and
  * everything after it from the transcript — so the UI matches the reverted
  * state. This is the "undo from this prompt onward" affordance.
+ *
+ * The prompt itself is handed back to the composer rather than thrown away: the
+ * point of an undo is almost always to reword and resend, so the app returns to
+ * the exact moment before you hit Enter.
  */
-export function PromptRevertButton({ messageId, checkpointId }: { messageId: string; checkpointId: string }) {
+export function PromptRevertButton({
+  messageId,
+  checkpointId,
+  content,
+}: {
+  messageId: string;
+  checkpointId: string;
+  /** The reverted prompt's text, restored into the input. */
+  content?: string;
+}) {
   const { workspacePath } = useStore();
   const [confirming, setConfirming] = useState(false);
   const [reverting, setReverting] = useState(false);
@@ -28,6 +41,9 @@ export function PromptRevertButton({ messageId, checkpointId }: { messageId: str
       const store = useStore.getState();
       // Drop this prompt and everything after it from the transcript.
       store.truncateMessagesFrom(messageId);
+      // Put the prompt back in the composer, exactly as it was about to be sent,
+      // so the user can edit and resend instead of retyping it.
+      if (content) store.setChatDraft(content);
       // If nothing meaningful remains (we reverted the first/only prompt), reset
       // the whole session so the user lands on the real WELCOME screen — not an
       // empty in-conversation state. isNewSession is only true when there's no

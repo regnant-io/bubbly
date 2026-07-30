@@ -1,4 +1,4 @@
-import { gitAdd, gitCommit, isGitRepo, getGitStatus } from './git';
+import { gitAdd, gitCommit, isGitRepo, getGitStatus, getGitChangeStats } from './git';
 import os from 'os';
 
 describe('git tool hardening', () => {
@@ -36,5 +36,26 @@ describe('git tool hardening', () => {
 
   it('getGitStatus returns a string (clean / not-a-repo / porcelain)', () => {
     expect(typeof getGitStatus(nonRepo)).toBe('string');
+  });
+
+  describe('getGitChangeStats', () => {
+    it('reports unavailable (not a repo) for a non-git directory, never throwing', () => {
+      const r = getGitChangeStats(nonRepo);
+      expect(r.available).toBe(false);
+      expect(r.reason).toBe('not-a-repo');
+      expect(r.filesChanged).toBe(0);
+      expect(r.insertions).toBe(0);
+      expect(r.deletions).toBe(0);
+    });
+
+    it('returns a well-formed shape with numeric totals for this repo', () => {
+      // This test runs inside the Bubbly git repo (process.cwd()), so stats are available.
+      const r = getGitChangeStats(process.cwd());
+      expect(typeof r.available).toBe('boolean');
+      expect(Number.isFinite(r.insertions)).toBe(true);
+      expect(Number.isFinite(r.deletions)).toBe(true);
+      expect(Number.isFinite(r.filesChanged)).toBe(true);
+      expect(r.filesChanged).toBeGreaterThanOrEqual(r.untracked);
+    });
   });
 });

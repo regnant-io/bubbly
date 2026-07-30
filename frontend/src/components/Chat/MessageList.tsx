@@ -16,50 +16,6 @@ import { PromptRevertButton } from './PromptRevertButton';
 import { useAppContextMenu } from '../Shared/ContextMenu';
 import { useStore } from '../../store';
 
-const EXAMPLE_PROMPTS = [
-  'Add input validation to the registration form',
-  'Write tests for the UserService class',
-  'Find all TODO comments and create a spec for them',
-  'Refactor the database layer to use connection pooling',
-];
-
-function WelcomeCard() {
-  const setChatDraft = useStore((s) => s.setChatDraft);
-  const workspacePath = useStore((s) => s.workspacePath);
-  return (
-    <div className="flex flex-col items-center justify-center h-full text-center py-10 px-4 animate-fade-in">
-      <div className="relative mb-5 shrink-0">
-        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-br from-accent/20 to-accent/5 border border-accent/25 flex items-center justify-center shadow-lg">
-          <img src="/bubble.svg" alt="" className="w-9 h-9 sm:w-11 sm:h-11" />
-        </div>
-        <span className="absolute -inset-2 rounded-3xl border border-accent/10 animate-pulse-slow" />
-      </div>
-      <h3 className="text-lg sm:text-xl font-semibold text-text mb-1.5">What should we build?</h3>
-      <p className="text-sm text-text-muted max-w-sm leading-relaxed mb-6 px-2">
-        Describe a task and I'll explore your codebase, plan it, and work through it step by step
-        {workspacePath ? '' : ' — pick a workspace first so I have code to work with'}.
-      </p>
-      {/* Auto-fit grid: reflows from two columns to one based on the CHAT
-          container's width (not the viewport), so it stays tidy when the panel
-          is docked/shrunk. */}
-      <div
-        className="grid gap-2 w-full max-w-lg"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}
-      >
-        {EXAMPLE_PROMPTS.map((p) => (
-          <button
-            key={p}
-            onClick={() => setChatDraft(p)}
-            className="text-left text-xs text-text-muted bg-surface-2 hover:bg-surface-3 hover:text-text border border-border hover:border-accent/40 rounded-xl px-3 py-2.5 transition-all leading-snug"
-          >
-            {p}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 interface MessageListProps {
   messages: ChatMessage[];
   onApprove: (id: string) => void;
@@ -95,7 +51,7 @@ const UserMessage = React.memo(function UserMessage({ id, content, checkpointId 
       )}
       {checkpointId && (
         <div className="opacity-0 group-hover/usermsg:opacity-100 focus-within:opacity-100 transition-opacity">
-          <PromptRevertButton messageId={id} checkpointId={checkpointId} />
+          <PromptRevertButton messageId={id} checkpointId={checkpointId} content={content} />
         </div>
       )}
     </div>
@@ -398,10 +354,8 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
 
       <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-4">
       <div className="mx-auto w-full max-w-3xl">
-      {visibleMessages.length === 0 && (
-        <WelcomeCard />
-      )}
-
+      {/* No empty state here: an empty transcript never reaches this component —
+          ChatPanel shows the welcome screen instead. */}
       {visibleMessages.map((msg, vi) => {
         const prev = visibleMessages[vi - 1];
         if (skipIds.has(msg.id)) return null;

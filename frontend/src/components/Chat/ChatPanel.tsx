@@ -52,7 +52,11 @@ export function ChatPanel() {
     }
   };
 
-  const isNewSession = !currentSessionId && messages.filter(m => m.type !== 'status').length === 0;
+  // An empty transcript IS the welcome state, whether or not a session id is
+  // still hanging around. Keying this on `currentSessionId` used to leave a
+  // reverted-to-empty thread showing a second, different empty state instead of
+  // the real welcome screen.
+  const isNewSession = messages.filter(m => m.type !== 'status').length === 0;
 
   return (
     <div className="flex flex-col h-full">

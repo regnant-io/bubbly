@@ -163,12 +163,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'run_command',
-    description: 'Run a one-shot shell command in the workspace directory (tests, installs, builds, linting). Commands are sandboxed to the workspace and time-bounded. Dev servers, watchers and other commands that never exit are detected automatically and started in the background instead of blocking — read their logs with get_process_output. Set foreground:true only if you truly need to await a normally-long-running command.',
+    description: 'Run a one-shot shell command in the workspace directory (installs, scaffolds, tests, builds, linting). Commands are sandboxed to the workspace and time-bounded, and run WITHOUT a terminal: stdin is closed and CI=1 is set, so anything that asks a question is killed rather than left hanging. ALWAYS pass the non-interactive flags (npm create vite -- --template react, --yes, --defaults) instead of relying on prompts. Dev servers and watchers are detected automatically and started in the background instead of blocking — read their logs with get_process_output. Set foreground:true only if you truly need to await a normally-long-running command.',
     inputSchema: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'Shell command to run' },
-        timeout_ms: { type: 'number', description: 'Timeout in milliseconds (default 30000)' },
+        timeout_ms: { type: 'number', description: 'Timeout in milliseconds. Omit it — the default is chosen from the command (10 min for installs/scaffolds, 5 min for builds and test suites, 60s otherwise). Only set it when you know better.' },
         foreground: { type: 'boolean', description: 'Force foreground execution even if the command looks long-running (default false).' },
       },
       required: ['command'],
@@ -1742,9 +1742,11 @@ export async function executeTool(
                 });
               },
             },
-            Number(args.timeout_ms ?? 30000)
+            // No hardcoded default: shell.ts sizes the budget from the command
+            // itself (an install/scaffold gets minutes, not 30s).
+            args.timeout_ms != null ? Number(args.timeout_ms) : undefined
           );
-          
+
           // stderr is clamped less aggressively than stdout: when a command
           // fails, the reason is almost always in stderr, and it's usually short.
           let out = '';
@@ -1766,7 +1768,7 @@ export async function executeTool(
           const { stdout, stderr, exitCode } = runShell(
             command,
             workspacePath,
-            Number(args.timeout_ms ?? 30000)
+            args.timeout_ms != null ? Number(args.timeout_ms) : undefined
           );
           let out = '';
           if (stdout) out += `stdout:\n${clampOutput(stdout)}\n`;

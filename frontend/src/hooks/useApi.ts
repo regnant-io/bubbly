@@ -180,7 +180,7 @@ export async function saveBrowserMetaPreviewUrl(workspacePath: string, previewUr
 }
 
 /** Start the project's dev server (browser-meta.json `start`). */
-export async function startPreviewServer(workspacePath: string): Promise<{ ok: boolean; processId?: string; url?: string | null; reused?: boolean; command?: string; error?: string }> {
+export async function startPreviewServer(workspacePath: string): Promise<{ ok: boolean; processId?: string; url?: string | null; note?: string | null; reused?: boolean; command?: string; error?: string }> {
   const res = await fetch(`${BASE}/files/preview/start`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspacePath }),
@@ -189,7 +189,7 @@ export async function startPreviewServer(workspacePath: string): Promise<{ ok: b
 }
 
 /** Poll the running dev server's status + detected URL. */
-export async function previewServerStatus(workspacePath: string): Promise<{ running: boolean; url: string | null; processId?: string; command?: string }> {
+export async function previewServerStatus(workspacePath: string): Promise<{ running: boolean; url: string | null; note?: string | null; processId?: string; command?: string }> {
   const res = await fetch(`${BASE}/files/preview/status?workspacePath=${encodeURIComponent(workspacePath)}`);
   return res.json();
 }

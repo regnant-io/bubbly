@@ -7,6 +7,7 @@ import { getAllSettings } from '../db/index';
 import { logger } from '../utils/logger';
 import { ensureBrowserMeta, getBrowserMetaPath, setBrowserMetaPreviewUrl, primaryService } from '../agent/tools/browserControl';
 import { backgroundProcesses } from '../agent/tools/backgroundProcess';
+import { resolvePreviewTarget, isNavigableSource } from '../agent/tools/previewTarget';
 
 export const filesRouter = Router();
 
@@ -42,7 +43,7 @@ filesRouter.get('/browser-meta', (req, res) => {
  * process, if one isn't already running. Returns immediately with the process
  * id; the caller polls /preview/status for the detected URL.
  */
-filesRouter.post('/preview/start', (req, res) => {
+filesRouter.post('/preview/start', async (req, res) => {
   const workspacePath = String(req.body?.workspacePath || '');
   if (!workspacePath) return res.status(400).json({ error: 'workspacePath is required' });
   const meta = ensureBrowserMeta(workspacePath);
@@ -60,6 +61,7 @@ filesRouter.post('/preview/start', (req, res) => {
   let primaryProc: string | null = null;
   let primaryUrl: string | null = null;
   let primaryCmd: string | null = null;
+  let previewNote: string | null = null;
 
   for (const s of runnable) {
     const cwd = path.join(workspacePath, s.cwd);
@@ -67,15 +69,36 @@ filesRouter.post('/preview/start', (req, res) => {
     const r = backgroundProcesses.start(
       s.start!,
       cwd,
-      isPrimary ? (url) => setBrowserMetaPreviewUrl(workspacePath, url) : undefined,
+      // 'detected' — the server printed this address itself, which is the
+      // strongest evidence we can get.
+      isPrimary ? (url) => setBrowserMetaPreviewUrl(workspacePath, url, 'detected') : undefined,
     );
     if (r.error) { started.push({ name: s.name, kind: s.kind, error: r.error }); continue; }
     started.push({ name: s.name, kind: s.kind, processId: r.id, reused: r.reused });
     if (isPrimary) {
       primaryProc = r.id;
       primaryCmd = s.start!;
-      primaryUrl = backgroundProcesses.getInfo(r.id)?.detectedUrl ?? s.url ?? null;
     }
+  }
+
+  // v3: resolve the address instead of asserting one. A freshly-started server
+  // usually has nothing yet — that returns url:null and the caller keeps
+  // polling /preview/status. What it must NEVER do is hand back the service's
+  // convention port (s.url), because that is a guess about someone else's
+  // machine and was how an unrelated app — including Bubbly itself — ended up
+  // being displayed as the user's project.
+  if (primaryProc) {
+    const info = backgroundProcesses.getInfo(primaryProc);
+    const target = await resolvePreviewTarget({
+      detectedUrl: info?.detectedUrl ?? null,
+      pid: backgroundProcesses.getPid(primaryProc),
+      configuredUrl: isNavigableSource(meta.meta.previewUrlSource) ? meta.meta.previewUrl : null,
+    });
+    primaryUrl = target.url;
+    if (target.url && target.source && target.source !== 'configured') {
+      setBrowserMetaPreviewUrl(workspacePath, target.url, target.source);
+    }
+    if (!target.url) previewNote = target.reason ?? null;
   }
 
   res.json({
@@ -83,6 +106,7 @@ filesRouter.post('/preview/start', (req, res) => {
     processId: primaryProc,
     command: primaryCmd,
     url: primaryUrl,
+    note: previewNote,
     services: started,
   });
 });
@@ -91,13 +115,16 @@ filesRouter.post('/preview/start', (req, res) => {
  * GET /api/files/preview/status?workspacePath=...
  * Poll the running dev server: whether it's alive and its detected URL.
  */
-filesRouter.get('/preview/status', (req, res) => {
+filesRouter.get('/preview/status', async (req, res) => {
   const workspacePath = String(req.query.workspacePath || '');
   if (!workspacePath) return res.status(400).json({ error: 'workspacePath is required' });
   const meta = ensureBrowserMeta(workspacePath);
   const services = meta.ok ? meta.meta.services : [];
 
   // Per-service running state (keyed by each service's own cwd).
+  // NOTE: `s.url` is deliberately NOT used as a fallback here. It is a
+  // convention guess, and reporting it as this service's live address is what
+  // made the preview open whatever unrelated app owned that port.
   const perService = services.map((s) => {
     const running = backgroundProcesses.findRunningByCwd(path.join(workspacePath, s.cwd));
     return {
@@ -105,7 +132,7 @@ filesRouter.get('/preview/status', (req, res) => {
       kind: s.kind,
       running: !!running,
       processId: running?.id ?? null,
-      url: running?.detectedUrl ?? (running ? s.url : null),
+      url: running?.detectedUrl ?? null,
     };
   });
 
@@ -113,10 +140,31 @@ filesRouter.get('/preview/status', (req, res) => {
   // to any running service (covers a bare workspace with no meta services).
   const primary = perService.find((p) => p.kind === 'frontend' && p.running) ?? perService.find((p) => p.running);
   const bare = !primary ? backgroundProcesses.findRunningByCwd(workspacePath) : null;
+  const processId = primary?.processId ?? bare?.id ?? null;
+
+  // Resolve — and verify — before handing an address to the browser. This is
+  // the poll the preview panel sits on while a dev server boots, so it is the
+  // right place to wait for real evidence rather than to guess.
+  let url: string | null = null;
+  let note: string | null = null;
+  if (processId) {
+    const target = await resolvePreviewTarget({
+      detectedUrl: primary?.url ?? bare?.detectedUrl ?? null,
+      pid: backgroundProcesses.getPid(processId),
+      configuredUrl: meta.ok && isNavigableSource(meta.meta.previewUrlSource) ? meta.meta.previewUrl : null,
+    });
+    url = target.url;
+    note = target.reason ?? null;
+    if (target.url && target.source && target.source !== 'configured') {
+      setBrowserMetaPreviewUrl(workspacePath, target.url, target.source);
+    }
+  }
+
   res.json({
     running: !!primary || !!bare,
-    processId: primary?.processId ?? bare?.id ?? null,
-    url: primary?.url ?? bare?.detectedUrl ?? null,
+    processId,
+    url,
+    note,
     services: perService,
   });
 });

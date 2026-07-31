@@ -23,6 +23,10 @@ import { getSetting } from '../../db/index';
 import { logger } from '../../utils/logger';
 import { isPreviewClientAvailable, hasEverSeenCapableClient, runPreviewAction } from './previewBridge';
 import { getProjectDataPath } from '../projectData';
+import { UrlSource, isNavigableSource, isSelfOrigin } from './previewTarget';
+
+/** Current run-config schema version. */
+export const RUN_CONFIG_VERSION = 3;
 
 export type BrowserAction =
   | 'open' | 'goto' | 'reload' | 'click' | 'type' | 'press' | 'scroll' | 'wait'
@@ -60,16 +64,25 @@ export interface RunService {
   port: number | null;
   /** http://localhost:<port> for a frontend service; null for backends. */
   url: string | null;
+  /** v3: where `url` came from. A 'guess' is a starting point for the agent to
+   *  confirm — it is NEVER navigated to. See previewTarget.ts. */
+  urlSource?: UrlSource;
   kind: 'frontend' | 'backend';
 }
 
 export interface BrowserMeta {
+  /** Run-config schema version. v1 = flat install/start, v2 = services[],
+   *  v3 = services[] + URL provenance and no guessed previewUrl. */
+  version: number;
   workspacePath: string;
   enabled: boolean;
   createdAt: string;
-  /** Where "Start" opens the preview. Points at the primary frontend service
-   *  and is updated as the real URL is detected/typed. */
+  /** Where "Start" opens the preview. Null until a real address is known —
+   *  v3 never stores a convention guess here (see previewUrlSource). */
   previewUrl: string | null;
+  /** v3: provenance of previewUrl. Only 'detected' | 'owned' | 'configured'
+   *  may be opened; anything else means "we don't actually know yet". */
+  previewUrlSource?: UrlSource;
   /** Legacy single-service fields, kept for back-compat + the address bar.
    *  Derived from the primary (frontend) service. */
   install: string | null;
@@ -78,7 +91,16 @@ export interface BrowserMeta {
   services: RunService[];
 }
 
-const DEFAULT_PREVIEW_URL = 'http://localhost:3000';
+// v3 deliberately has NO default preview URL.
+//
+// v2 fell back to `http://localhost:3000` whenever it couldn't work out where a
+// project served from. That is not a neutral default — it is an assertion that
+// something specific is running on a specific port, and on a developer machine
+// port 3000 is almost always occupied by something ELSE (Docker, another app,
+// or Bubbly itself). The preview then loaded a completely unrelated page and
+// presented it as the user's project, with no error to explain it.
+//
+// "I don't know yet" is now a first-class state. See resolvePreviewTarget.
 
 // --- Run-config inference (the auto-authored "Dockerfile") -------------------
 // We learn HOW a project starts and WHERE its frontend serves BEFORE writing
@@ -166,6 +188,9 @@ function serviceForDir(absDir: string, root: string): RunService | null {
       start: `${runPrefix(pm)} ${script}`,
       port,
       url: kind === 'frontend' && port ? `http://localhost:${port}` : null,
+      // Everything here is inferred from framework convention. Marking it as a
+      // guess is what stops it being opened as if it were fact.
+      urlSource: 'guess',
       kind,
     };
   }
@@ -173,7 +198,7 @@ function serviceForDir(absDir: string, root: string): RunService | null {
   // Non-Node conventions (only meaningful at a real service dir).
   const be = detectBackend(absDir, {});
   if (be?.framework === 'django') {
-    return { name: rel || path.basename(root), cwd: rel, install: 'pip install -r requirements.txt', start: 'python manage.py runserver', port: 8000, url: 'http://localhost:8000', kind: 'backend' };
+    return { name: rel || path.basename(root), cwd: rel, install: 'pip install -r requirements.txt', start: 'python manage.py runserver', port: 8000, url: 'http://localhost:8000', urlSource: 'guess', kind: 'backend' };
   }
   if (be?.framework === 'python') {
     return { name: rel || path.basename(root), cwd: rel, install: 'pip install -r requirements.txt', start: null, port: null, url: null, kind: 'backend' };
@@ -267,8 +292,18 @@ export function primaryService(services: RunService[]): RunService | null {
   return services.find((s) => s.kind === 'frontend') ?? services[0] ?? null;
 }
 
+/**
+ * The preview URL implied by the configured services — but ONLY when it is
+ * something we actually know, not a convention guess. A service whose url came
+ * from "Vite is usually 5173" yields null here: it is the agent's starting
+ * point for authoring the config, never an address to open.
+ */
 function primaryPreviewUrl(services: RunService[]): string | null {
-  return (services.find((s) => s.kind === 'frontend' && s.url) ?? services.find((s) => s.url))?.url ?? null;
+  const candidate = services.find((s) => s.kind === 'frontend' && s.url) ?? services.find((s) => s.url);
+  if (!candidate?.url) return null;
+  if (!isNavigableSource(candidate.urlSource)) return null;
+  if (isSelfOrigin(candidate.url)) return null;
+  return candidate.url;
 }
 
 /** Remove ANSI escape codes + stray control chars and validate the URL shape.
@@ -290,14 +325,23 @@ export function getBrowserMetaPath(workspacePath: string): string {
 
 /** Persist the last-known preview URL into the project's meta so the Start
  *  button reopens the right server next time. Best-effort. */
-export function setBrowserMetaPreviewUrl(workspacePath: string, previewUrl: string): void {
+export function setBrowserMetaPreviewUrl(workspacePath: string, previewUrl: string, source: UrlSource = 'detected'): void {
   try {
     const clean = sanitizePreviewUrl(previewUrl);
     if (!clean) return;
+    // Never persist Bubbly's own address, and never persist a guess. v2 saved
+    // whatever the panel happened to be showing, so a single wrong navigation
+    // became the project's permanent preview URL and every later Start
+    // reproduced the same wrong page.
+    if (isSelfOrigin(clean)) {
+      logger.warn('Refusing to save Bubbly\'s own address as a project preview URL', { workspacePath, previewUrl: clean });
+      return;
+    }
+    if (!isNavigableSource(source)) return;
     const r = ensureBrowserMeta(workspacePath);
     if (!r.ok) return;
     const metaPath = getBrowserMetaPath(workspacePath);
-    fs.writeFileSync(metaPath, JSON.stringify({ ...r.meta, previewUrl: clean }, null, 2));
+    fs.writeFileSync(metaPath, JSON.stringify({ ...r.meta, previewUrl: clean, previewUrlSource: source }, null, 2));
   } catch { /* non-critical */ }
 }
 
@@ -319,16 +363,24 @@ export function ensureBrowserMeta(workspacePath: string): { ok: true; meta: Brow
       // Back-fill the run config for metas written before a given field existed,
       // so old projects also get a working (multi-service) Run button. We only
       // re-infer when something is missing, so a user's hand-edits are preserved.
-      const needsInfer = raw.services === undefined || raw.start === undefined || raw.install === undefined;
+      const needsInfer = raw.services === undefined || raw.start === undefined || raw.install === undefined
+        || (raw.version ?? 1) < RUN_CONFIG_VERSION;
       const services = (raw.services && raw.services.length) ? raw.services : (needsInfer ? inferServices(workspacePath) : []);
       const primary = primaryService(services);
+      const savedUrl = sanitizePreviewUrl(raw.previewUrl);
+      // A previously-saved URL pointing at Bubbly is dropped, not honoured. v2
+      // persisted whatever the panel last loaded, so one bad navigation baked
+      // the wrong address into the project's config permanently.
+      const usableSavedUrl = savedUrl && !isSelfOrigin(savedUrl) ? savedUrl : null;
       const meta: BrowserMeta = {
+        version: RUN_CONFIG_VERSION,
         workspacePath,
         enabled: raw.enabled !== false,
         createdAt: raw.createdAt ?? new Date().toISOString(),
-        // Sanitize any previously-saved dirty URL (ANSI codes) so Start never
-        // navigates to garbage; fall back to a detected/default URL if unusable.
-        previewUrl: sanitizePreviewUrl(raw.previewUrl) ?? primaryPreviewUrl(services) ?? DEFAULT_PREVIEW_URL,
+        previewUrl: usableSavedUrl ?? primaryPreviewUrl(services),
+        previewUrlSource: usableSavedUrl
+          ? ((raw.previewUrlSource as UrlSource | undefined) ?? 'configured')
+          : (primaryPreviewUrl(services) ? 'configured' : undefined),
         install: raw.install ?? primary?.install ?? null,
         start: raw.start ?? primary?.start ?? null,
         services,
@@ -346,10 +398,13 @@ export function ensureBrowserMeta(workspacePath: string): { ok: true; meta: Brow
     const services = inferServices(workspacePath);
     const primary = primaryService(services);
     const meta: BrowserMeta = {
+      version: RUN_CONFIG_VERSION,
       workspacePath,
       enabled: true,
       createdAt: new Date().toISOString(),
-      previewUrl: primaryPreviewUrl(services) ?? DEFAULT_PREVIEW_URL,
+      // Null, not a guess. Start resolves the real address from the process it
+      // launches; until then there is nothing honest to point at.
+      previewUrl: primaryPreviewUrl(services),
       install: primary?.install ?? null,
       start: primary?.start ?? null,
       services,
@@ -463,19 +518,27 @@ function migrateMeta(workspacePath: string, raw: Partial<BrowserMeta>): { meta: 
             start: raw.start ?? null,
             port: null,
             url: sanitizePreviewUrl(raw.previewUrl),
+            // A hand-written v1 previewUrl is a deliberate human choice.
+            urlSource: 'configured' as const,
             kind: 'frontend' as const,
           }]
         : [])
     : raw.services!;
 
   const primary = primaryService(services);
+  const savedUrl = sanitizePreviewUrl(raw.previewUrl);
+  const usableSavedUrl = savedUrl && !isSelfOrigin(savedUrl) ? savedUrl : null;
   return {
     migrated: isV1,
     meta: {
+      version: RUN_CONFIG_VERSION,
       workspacePath,
       enabled: raw.enabled !== false,
       createdAt: raw.createdAt ?? new Date().toISOString(),
-      previewUrl: sanitizePreviewUrl(raw.previewUrl) ?? primaryPreviewUrl(services),
+      previewUrl: usableSavedUrl ?? primaryPreviewUrl(services),
+      previewUrlSource: usableSavedUrl
+        ? ((raw.previewUrlSource as UrlSource | undefined) ?? 'configured')
+        : (primaryPreviewUrl(services) ? 'configured' : undefined),
       install: raw.install ?? primary?.install ?? null,
       start: raw.start ?? primary?.start ?? null,
       services,
@@ -524,11 +587,16 @@ export function describeRunConfig(status: RunConfigStatus): string {
       const bits = [`cwd: ${s.cwd || '.'}`, `kind: ${s.kind}`];
       if (s.install) bits.push(`install: ${s.install}`);
       bits.push(`start: ${s.start ?? '(none)'}`);
-      if (s.url) bits.push(`url: ${s.url}`);
+      // Say plainly when a URL is only a convention guess. The agent's job is to
+      // confirm it against the project (a port in vite.config, a --port flag in
+      // the dev script) before authoring it — an unchallenged guess is exactly
+      // how the preview ends up showing an unrelated app.
+      if (s.url) bits.push(`url: ${s.url}${s.urlSource === 'guess' ? ' (UNVERIFIED GUESS — confirm against the project before writing it)' : ''}`);
       lines.push(`  - ${s.name} — ${bits.join(', ')}`);
     }
   }
   if (status.meta?.previewUrl) lines.push(`  previewUrl: ${status.meta.previewUrl}`);
+  else if (status.meta) lines.push('  previewUrl: (not known yet — Start will detect it from the running server)');
   for (const i of status.issues) lines.push(`  [${i.level}] ${i.message}`);
   return lines.join('\n');
 }
@@ -547,6 +615,11 @@ function coerceService(workspacePath: string, input: Partial<RunService>, index:
     // A frontend without an explicit URL still needs one to preview; derive it
     // from the port so the agent doesn't have to spell out both.
     url: sanitizePreviewUrl(input.url) ?? (kind === 'frontend' && port ? `http://localhost:${port}` : null),
+    // The agent authored this after reading the project, so it counts as
+    // configured — unless it left the URL out entirely and we derived it from a
+    // port it also supplied, which is still its stated intent. Either way this
+    // is a deliberate declaration, not a convention guess.
+    urlSource: 'configured',
     kind,
   };
 }
@@ -583,11 +656,19 @@ export function writeRunConfig(
       ? (JSON.parse(fs.readFileSync(metaPath, 'utf8')) as Partial<BrowserMeta>)
       : {};
     const primary = primaryService(services);
+    const authoredUrl = sanitizePreviewUrl(input.previewUrl) ?? primaryPreviewUrl(services) ?? sanitizePreviewUrl(prior.previewUrl);
+    // Refuse to write a config that previews Bubbly. This is the one mistake
+    // that looks completely fine on disk and is baffling on screen.
+    if (authoredUrl && isSelfOrigin(authoredUrl)) {
+      return { ok: false, error: `previewUrl ${authoredUrl} is Bubbly's own address — previewing it would show Bubbly inside Bubbly. Point it at the project's dev server port instead (or leave it out and let Start detect it).` };
+    }
     const meta: BrowserMeta = {
+      version: RUN_CONFIG_VERSION,
       workspacePath,
       enabled: prior.enabled !== false,
       createdAt: prior.createdAt ?? new Date().toISOString(),
-      previewUrl: sanitizePreviewUrl(input.previewUrl) ?? primaryPreviewUrl(services) ?? sanitizePreviewUrl(prior.previewUrl),
+      previewUrl: authoredUrl,
+      previewUrlSource: authoredUrl ? 'configured' : undefined,
       install: primary?.install ?? null,
       start: primary?.start ?? null,
       services,

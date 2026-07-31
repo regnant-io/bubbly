@@ -156,8 +156,13 @@ export function BubblyPreview() {
   // already-running external server still works).
   const startPreview = async () => {
     if (!workspacePath || !browserMeta.start) {
-      const url = normalize(browserMeta.previewUrl || addr || 'http://localhost:3000');
+      // No start command: the only honest options are a URL the project
+      // actually declared, or one the user typed. There is deliberately no
+      // `localhost:3000` fallback any more — that guess is what made Start open
+      // whatever unrelated app owned that port (frequently Bubbly itself).
+      const url = normalize(browserMeta.previewUrl || addr || '');
       if (url) setPreviewUrl(url);
+      else setLoadError('This project has no start command and no known preview address. Type a URL above, or ask the agent to set up the run config.');
       return;
     }
     setServerState('starting');
@@ -170,10 +175,19 @@ export function BubblyPreview() {
     if (r.url) { setServerState('running'); setPreviewUrl(normalize(r.url)); return; }
     // Poll for the server's URL (it prints it a moment after starting).
     const startedAt = Date.now();
+    let lastNote: string | null = null;
     const poll = async () => {
-      if (Date.now() - startedAt > 45000) { setServerState('idle'); setLoadError('The dev server started but never printed a URL. Check the terminal.'); return; }
-      const s = await previewServerStatus(workspacePath).catch(() => ({ running: false, url: null }));
+      if (Date.now() - startedAt > 45000) {
+        setServerState('idle');
+        // Surface the resolver's own reason — "port 5173 is bound by something
+        // that isn't this project", "nothing answering yet" — instead of a
+        // generic message the user can't act on.
+        setLoadError(lastNote ?? 'The dev server started but never reported a reachable address. Check its output in the terminal.');
+        return;
+      }
+      const s = await previewServerStatus(workspacePath).catch(() => ({ running: false, url: null } as any));
       if (!s.running) { setServerState('idle'); setLoadError('The dev server exited before it was ready. Check the terminal for errors.'); return; }
+      if (s.note) lastNote = s.note;
       if (s.url) { setServerState('running'); setPreviewUrl(normalize(s.url)); return; }
       setTimeout(poll, 1000);
     };

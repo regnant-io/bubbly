@@ -160,7 +160,21 @@ class BackgroundProcessManager {
     try {
       proc = spawn(shell, shellArgs, {
         cwd,
-        env: { ...process.env, FORCE_COLOR: '0' },
+        // Quiet the package-manager chatter and stop git/npx from blocking on a
+        // prompt. Deliberately NOT setting CI=1 here (unlike the one-shot shell):
+        // some dev servers change behaviour under CI — react-scripts turns
+        // warnings into errors and refuses to start — and a background process
+        // CAN be answered later via send_process_input, so it doesn't need the
+        // same hard non-interactive stance.
+        env: {
+          ...process.env,
+          FORCE_COLOR: '0',
+          npm_config_yes: 'true',
+          npm_config_audit: 'false',
+          npm_config_fund: 'false',
+          npm_config_progress: 'false',
+          GIT_TERMINAL_PROMPT: '0',
+        },
         windowsHide: true,
       }) as ChildProcessWithoutNullStreams;
     } catch (err) {
@@ -221,6 +235,12 @@ class BackgroundProcessManager {
       out = arr.slice(-opts.lines).join('\n');
     }
     return { ok: true, output: out, status: p.status, exitCode: p.exitCode, awaitingInput: p.awaitingInput };
+  }
+
+  /** OS pid of a running process, for port-ownership lookups (previewTarget). */
+  getPid(id: string): number | null {
+    const p = this.procs.get(id);
+    return p && p.status === 'running' ? (p.proc.pid ?? null) : null;
   }
 
   /** Snapshot a process's status + detected dev-server URL, or null if unknown. */

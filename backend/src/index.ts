@@ -10,6 +10,7 @@ import { settingsRouter } from './routes/settings';
 import { mcpRouter } from './routes/mcp';
 import { runAgentLoop, resolveApproval, resolveQuestion, stopSession } from './agent/orchestrator';
 import { registerPreviewClient, unregisterPreviewClient, setPreviewCapability, resolvePreviewAction } from './agent/tools/previewBridge';
+import { registerSelfPort, SELF_HEADER } from './agent/tools/previewTarget';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from './db/index';
 import { logger } from './utils/logger';
@@ -44,6 +45,16 @@ app.use(cors({
   origin: (origin, cb) => cb(null, isAllowedOrigin(origin ?? undefined)),
 }));
 app.use(express.json({ limit: '50mb' }));
+
+// Identify ourselves on EVERY response. The preview probes a candidate URL
+// before navigating to it; this header is how it recognises Bubbly and refuses
+// to embed the app inside its own preview panel. Port-based detection can't
+// cover every case (a dev server proxying to us answers on a port we don't
+// know), so the responder says who it is.
+app.use((_req, res, next) => {
+  res.setHeader(SELF_HEADER, '1');
+  next();
+});
 
 // API routes
 app.use('/api/sessions', sessionsRouter);
@@ -380,6 +391,10 @@ function announceReady(): void {
     shell,
     isWindows,
   });
+
+  // Tell the preview subsystem which port is OURS. Without this the preview can
+  // be pointed at Bubbly's own address and renders the app inside itself.
+  registerSelfPort(actualPort);
 
   console.log(`\n🫧  Bubbly backend running on http://localhost:${actualPort}`);
   console.log(`   WebSocket: ws://localhost:${actualPort}/ws`);

@@ -3,11 +3,19 @@ import { useStore } from '../../store';
 import { isDesktop } from '../../hooks/useDesktop';
 import { registerPreviewHandler, PreviewControlResult } from '../../utils/previewController';
 import { reportPreviewCapability } from '../../utils/previewHostBus';
-import { SNAPSHOT_JS, buildClickJs, buildTypeJs, buildIsReadyJs, formatSnapshot } from '../../utils/browserPageScripts';
+import { SNAPSHOT_JS, PAINT_CHECK_JS, buildClickJs, buildTypeJs, buildIsReadyJs, formatSnapshot } from '../../utils/browserPageScripts';
 import { detectBrowserMeta, saveBrowserMetaPreviewUrl, startPreviewServer, previewServerStatus, stopPreviewServer } from '../../hooks/useApi';
 import { Monitor, Smartphone, Tablet, ArrowLeft, ChevronRight, RefreshCw, ExternalLink, ShieldCheck, Play, Square, Loader2, Maximize2 } from '../Shared/icons';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * loadError carries two different things: a bare URL (from the webview's
+ * did-fail-load, which only knows the address) or a written explanation. A URL
+ * never contains a space, so this tells them apart and lets the overlay show a
+ * real explanation instead of pasting an address into a fixed sentence.
+ */
+const isMessage = (e: string) => /\s/.test(e.trim());
 
 /**
  * Race a promise against a timeout so a detached / crashed / unfocused webview
@@ -21,6 +29,12 @@ function wvTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`webview ${label} timed out after ${ms}ms`)), ms)),
   ]);
 }
+
+// Self-heal tuning for the blank-first-paint case (see checkPaintAndHeal).
+// Deliberately small: this is a boot race, not a retry policy for a broken app.
+const PAINT_SETTLE_MS = 450;
+const HEAL_BACKOFF_MS = 600;
+const MAX_HEAL_ATTEMPTS = 3;
 
 // Device presets shared with the agent's browser_control "viewport" action.
 const VIEWPORT_PRESETS: Record<string, { width: number; height: number }> = {
@@ -67,9 +81,15 @@ export function BubblyPreview() {
   const [fitToPanel, setFitToPanel] = useState(true);
   // Live size of the frame viewport area, measured so we can compute the fit scale.
   const [panelSize, setPanelSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  // True while we're reloading a page that loaded but came up empty. Surfaced
+  // as a small badge so a self-heal never looks like the preview hanging.
+  const [healing, setHealing] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<any>(null);
   const consoleLogRef = useRef<string[]>([]);
+  // Per-navigation heal budget. `cancelled` lets an in-flight settle/backoff
+  // abandon quietly when the user navigates away mid-heal.
+  const healRef = useRef<{ attempts: number; cancelled: boolean }>({ attempts: 0, cancelled: false });
   const handlerRef = useRef<(action: string, params: Record<string, unknown>) => Promise<PreviewControlResult>>();
 
   useEffect(() => { setAddr(previewUrl ?? ''); }, [previewUrl]);
@@ -100,9 +120,12 @@ export function BubblyPreview() {
   useEffect(() => {
     setLoadError(null);
     consoleLogRef.current = []; // fresh page → fresh console buffer
+    healRef.current = { attempts: 0, cancelled: false };
+    setHealing(false);
     if (!isDesktop()) return;
     const wv = webviewRef.current;
     if (!wv || typeof wv.addEventListener !== 'function') return;
+    const heal = healRef.current;
     const onFail = (e: any) => {
       // errorCode -3 is "aborted" (e.g. a superseded navigation) — ignore it.
       if (e?.isMainFrame === false || e?.errorCode === -3) return;
@@ -115,17 +138,72 @@ export function BubblyPreview() {
       consoleLogRef.current.push(line);
       if (consoleLogRef.current.length > 200) consoleLogRef.current = consoleLogRef.current.slice(-200);
     };
+    // The self-heal. `dom-ready` is the earliest point the guest can be
+    // scripted, so this is where we find out whether the page the user is
+    // looking at actually has anything on it. See PAINT_CHECK_JS for why a
+    // "loaded" dev-server page is so often empty on the very first navigation.
+    const onDomReady = () => { void checkPaintAndHeal(wv, heal); };
     wv.addEventListener('did-fail-load', onFail);
     wv.addEventListener('did-finish-load', onOk);
     wv.addEventListener('console-message', onConsole);
+    wv.addEventListener('dom-ready', onDomReady);
     return () => {
+      heal.cancelled = true;
       try {
         wv.removeEventListener('did-fail-load', onFail);
         wv.removeEventListener('did-finish-load', onOk);
         wv.removeEventListener('console-message', onConsole);
+        wv.removeEventListener('dom-ready', onDomReady);
       } catch { /* ignore */ }
     };
   }, [previewUrl, iframeKey]);
+
+  /**
+   * Ask the freshly-loaded guest whether it painted, and reload it if it did
+   * not. This is what removes the manual Refresh after Start.
+   *
+   * The preview only navigates to an address that has already been proven live
+   * (see previewTarget.ts), but "live" means the server answered — not that the
+   * app can render yet. A cold Vite start serves index.html immediately and then
+   * 504s its module requests while it optimises dependencies, so the first
+   * navigation lands on a blank page and stays there. Reloading a moment later
+   * is all it ever needed, which is exactly what the user was doing by hand.
+   *
+   * Bounded and honest: at most MAX_HEAL_ATTEMPTS reloads with a widening gap,
+   * and a framework error overlay is left alone so a genuine compile error is
+   * never reloaded out of sight.
+   */
+  const checkPaintAndHeal = async (wv: any, heal: { attempts: number; cancelled: boolean }) => {
+    if (!wv || typeof wv.executeJavaScript !== 'function') return;
+    // Give the app's own first paint a moment before judging it blank.
+    await sleep(PAINT_SETTLE_MS);
+    if (heal.cancelled) return;
+    let verdict: any = null;
+    try {
+      verdict = await wvTimeout(wv.executeJavaScript(PAINT_CHECK_JS, true), 4000, 'paint-check');
+    } catch {
+      return; // can't script it → not evidence of a blank app; leave it alone
+    }
+    if (heal.cancelled || !verdict) return;
+    if (!verdict.blank) { setHealing(false); return; }
+    if (heal.attempts >= MAX_HEAL_ATTEMPTS) {
+      setHealing(false);
+      // Responding but never rendering is a different failure from unreachable,
+      // and the fix is different too — so say which one it is.
+      setLoadError(
+        `${previewUrl} is responding, but the page is still empty after ${MAX_HEAL_ATTEMPTS} reloads. ` +
+        `The dev server is probably serving a shell whose scripts are failing — check the terminal output and the browser console.`,
+      );
+      return;
+    }
+    heal.attempts += 1;
+    setHealing(true);
+    // Widening gap: a dependency pre-bundle that wasn't done at 400ms is often
+    // done by ~1.2s, and reloading in a tight loop only fights it.
+    await sleep(HEAL_BACKOFF_MS * heal.attempts);
+    if (heal.cancelled) return;
+    try { wv.reload(); } catch { /* the dom-ready that follows re-checks */ }
+  };
 
   const detectMeta = async () => {
     if (!workspacePath) return;
@@ -432,9 +510,27 @@ export function BubblyPreview() {
   const back = () => { try { webviewRef.current?.goBack?.(); } catch { /* ignore */ } };
   const forward = () => { try { webviewRef.current?.goForward?.(); } catch { /* ignore */ } };
   const reload = () => {
+    // A deliberate refresh earns a fresh heal budget — otherwise a page that
+    // exhausted its automatic attempts could never self-heal again.
+    healRef.current = { attempts: 0, cancelled: false };
     if (isDesktop()) { try { webviewRef.current?.reload?.(); } catch { /* ignore */ } }
     else setIframeKey((k) => k + 1);
   };
+
+  // Non-desktop fallback for the same blank-first-paint race. A cross-origin
+  // iframe can't be scripted, so we can't ask it whether it painted — but the
+  // window we're covering is narrow and well understood (a dev server that has
+  // just started serving), so do exactly one automatic remount shortly after
+  // the first navigation to a freshly-started server. Once per URL, never on
+  // desktop (which has the real paint check), never for a URL the user typed.
+  const healedUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isDesktop() || !previewUrl || serverState !== 'running') return;
+    if (healedUrlRef.current === previewUrl) return;
+    healedUrlRef.current = previewUrl;
+    const t = setTimeout(() => setIframeKey((k) => k + 1), 1500);
+    return () => clearTimeout(t);
+  }, [previewUrl, serverState]);
   const openExternal = () => {
     if (!previewUrl) return;
     const api = (window as any).bubblyDesktop;
@@ -647,27 +743,45 @@ export function BubblyPreview() {
           </div>
         )}
 
-        {/* Load-failure overlay — covers the frame when the URL can't be
-            reached (dev server not running), instead of a blank page. */}
-        {hasLive && loadError && (
+        {/* Self-heal badge — the page loaded but came up empty and we're
+            reloading it. Shown so an automatic retry reads as progress rather
+            than a stuck preview. */}
+        {hasLive && healing && !loadError && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-2/95 backdrop-blur border border-border shadow-lg text-[11px] text-text-muted">
+            <Loader2 size={11} className="animate-spin text-accent-bright" />
+            Waiting for the app&rsquo;s first render…
+          </div>
+        )}
+
+        {/* Failure overlay. Covers BOTH the live frame (URL unreachable, or it
+            loaded but never rendered) and the placeholder — the start-up
+            failures set a precise, actionable message and it used to be
+            discarded because this block only rendered over a live frame. */}
+        {loadError && (
           <div className="absolute inset-0 z-10 bg-surface-0 flex flex-col items-center justify-center text-center px-6 gap-3">
             <div className="w-12 h-12 rounded-2xl bg-error-bg border border-red-agent/30 flex items-center justify-center">
               <Monitor size={22} className="text-red-agent" />
             </div>
-            <p className="text-sm font-medium text-text">Couldn&rsquo;t connect</p>
-            <p className="text-xs leading-relaxed max-w-[280px] text-text-dim">
-              Nothing is responding at <span className="font-mono text-text-muted break-all">{previewUrl}</span>.
-              The dev server may not be running yet — start it, then retry.
+            <p className="text-sm font-medium text-text">
+              {isMessage(loadError) ? 'Preview couldn’t start' : 'Couldn’t connect'}
+            </p>
+            <p className="text-xs leading-relaxed max-w-[300px] text-text-dim">
+              {isMessage(loadError) ? loadError : (
+                <>
+                  Nothing is responding at <span className="font-mono text-text-muted break-all">{previewUrl}</span>.
+                  The dev server may not be running yet — start it, then retry.
+                </>
+              )}
             </p>
             <div className="flex items-center gap-2 mt-1">
               <button
-                onClick={() => { setLoadError(null); reload(); }}
+                onClick={() => { setLoadError(null); if (hasLive) reload(); else void startPreview(); }}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-accent hover:bg-accent-bright text-white text-xs font-medium transition-colors"
               >
                 <RefreshCw size={13} /> Retry
               </button>
               <button
-                onClick={stopPreview}
+                onClick={() => { setLoadError(null); void stopPreview(); }}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-border hover:border-red-agent/50 hover:bg-error-bg text-xs text-text transition-colors"
               >
                 <Square size={13} /> Stop

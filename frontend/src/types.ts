@@ -104,6 +104,8 @@ export interface SpecTask {
   dependsOn?: string[];
   satisfiesProperties?: string[];
   acceptance?: string;
+  /** The exact command that proves this task works, from "Verify with:" in tasks.md. */
+  verifyWith?: string;
   verificationNote?: string;
   subTasks?: SpecSubTask[];
 }
@@ -223,7 +225,37 @@ export type ChatMessage =
       batchId: string;
       lanes: ParallelLane[];
       timestamp: number;
+    }
+  // The card that stands in for an agent-authored document. The document itself
+  // lives in the artifacts store; the card carries only what it takes to
+  // identify it, so revising an artifact updates one card rather than adding a
+  // second one for the same document.
+  | {
+      id: string;
+      type: 'artifact';
+      artifactId: string;
+      timestamp: number;
     };
+
+export type ArtifactKind = 'markdown' | 'html' | 'code' | 'svg' | 'mermaid' | 'json';
+
+export interface ArtifactVersion {
+  version: number;
+  content: string;
+  createdAt: number;
+  note?: string;
+}
+
+/** An agent-authored document. Versions accumulate; nothing is overwritten. */
+export interface Artifact {
+  id: string;
+  title: string;
+  kind: ArtifactKind;
+  language?: string;
+  createdAt: number;
+  updatedAt: number;
+  versions: ArtifactVersion[];
+}
 
 export interface ParallelLane {
   lane: string;
@@ -252,6 +284,9 @@ export type WSClientMessage =
   | { type: 'term_kill'; terminalId: string }
   | { type: 'preview_result'; id: string; ok: boolean; result: string; image?: string; url?: string; reason?: string }
   | { type: 'preview_ready'; capable: boolean; desktop: boolean; hasWebview: boolean; url?: string | null }
+  /** "This window is now looking at thread X." Lets a detached watcher's
+   *  wake-up stream into the right window instead of every connected one. */
+  | { type: 'focus_session'; sessionId: string | null }
   | { type: 'ping' };
 
 // WS events from backend
@@ -278,6 +313,8 @@ export type WSServerEvent =
   | { type: 'preview_url'; url: string }
   | { type: 'preview_control'; id: string; action: string; params: Record<string, unknown> }
   | { type: 'preview_activate' }
+  /** A registered wait finished. A DETACHED one also restarts the thread. */
+  | { type: 'watcher_settled'; id: string; label: string; outcome: 'met' | 'timeout' | 'failed' | 'cancelled'; detail: string }
   | { type: 'spec_created'; spec: Spec }
   | { type: 'spec_updated'; spec: Spec }
   | { type: 'task_dispatched'; specId: string; taskId: string; taskTitle: string; index: number; total: number }
@@ -289,6 +326,18 @@ export type WSServerEvent =
   | { type: 'context_compacted'; tokensBefore: number; tokensAfter: number }
   | { type: 'context_migrated'; fromSessionId: string; toSessionId: string; reason: 'context_limit' | 'model_downgrade'; summary: string }
   | { type: 'plan_updated'; steps: Array<{ title: string; status: 'todo' | 'in_progress' | 'done' }>; owner?: 'main' | 'worker' }
+  | {
+      type: 'artifact';
+      id: string;
+      title: string;
+      kind: ArtifactKind;
+      language?: string;
+      version: number;
+      versionCount: number;
+      note?: string;
+      body: string;
+      updatedAt: number;
+    }
   | { type: 'prompt_checkpoint'; id: string; prompt: string; createdAt: string }
   | { type: 'question_asked'; questionId: string; question: string; options?: string[] }
   | { type: 'ollama_retry'; attempt: number; maxAttempts: number; delayMs: number; error: string }

@@ -1,4 +1,5 @@
 import { execSync, spawn, spawnSync } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import { logger } from '../../utils/logger';
 import { detectInputPrompt } from '../../terminal/inputDetection';
@@ -20,6 +21,55 @@ export interface ShellResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+/**
+ * Options for a shell run. Accepted alongside the older bare `timeoutMs`
+ * positional so existing callers keep working.
+ */
+export interface ShellOptions {
+  timeoutMs?: number;
+  /** Working directory RELATIVE to the workspace root. Must stay inside it. */
+  cwd?: string;
+}
+
+function asOptions(o: number | ShellOptions | undefined): ShellOptions {
+  if (o == null) return {};
+  return typeof o === 'number' ? { timeoutMs: o } : o;
+}
+
+/**
+ * Resolve the directory a command should run in.
+ *
+ * Every command used to run at the workspace root, so working in a subproject
+ * meant chaining `cd sub; npm install` by hand — and on Windows that chain is
+ * exactly what the `&&` parse error and the PowerShell quoting rules kept
+ * breaking. An explicit cwd removes the shell from the equation entirely.
+ *
+ * A cwd that escapes the workspace, or does not exist, is rejected rather than
+ * silently falling back to the root: running an install in the wrong directory
+ * writes a node_modules nobody asked for and reports success.
+ */
+export function resolveCommandCwd(
+  workspacePath: string,
+  relative: string | undefined,
+): { ok: true; cwd: string } | { ok: false; error: string } {
+  const root = path.resolve(workspacePath);
+  if (!relative || relative === '.' || relative === './') return { ok: true, cwd: root };
+
+  const target = path.resolve(root, relative);
+  const rel = path.relative(root, target);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    return { ok: false, error: `cwd "${relative}" is outside the workspace. Use a path relative to the workspace root.` };
+  }
+  try {
+    if (!fs.statSync(target).isDirectory()) {
+      return { ok: false, error: `cwd "${relative}" exists but is not a directory.` };
+    }
+  } catch {
+    return { ok: false, error: `cwd "${relative}" does not exist. Create it first, or check the path — running here would put the results in the wrong place.` };
+  }
+  return { ok: true, cwd: target };
 }
 
 export interface StreamingCallbacks {
@@ -270,19 +320,57 @@ function escapeBash(command: string): string {
  * Proactively normalize a command for Windows PowerShell so common Unix-isms
  * the model emits still work. This is a safety net on top of the system prompt.
  * Conservative: only rewrites things that are unambiguous and safe.
+ *
+ * Windows PowerShell 5.1 has no `&&` / `||` chain operators — they are a parse
+ * error, so the command dies before its first byte runs. `a && b` becomes
+ * `a; b`; `||` gets the same best-effort sequential treatment.
+ *
+ * THE REWRITE IS QUOTE-AWARE rather than skipped-if-quoted. The previous version
+ * bailed out the moment the command contained ANY quote, which meant the single
+ * most common real install — `cd "my project" && npm install` — sailed through
+ * untouched and died on a PowerShell syntax error, with npm never invoked. Since
+ * any path with a space needs quoting, "has a quote somewhere" and "must not be
+ * rewritten" are completely different questions. We now walk the string tracking
+ * quote state and only rewrite operators found OUTSIDE quotes, which is both
+ * safer than the old blanket rewrite and vastly more useful than skipping.
  */
 export function normalizeForWindows(command: string): string {
   if (process.platform !== 'win32') return command;
-  let cmd = command;
 
-  // Windows PowerShell 5.1 does not support `&&` / `||` chaining. Convert the
-  // common `a && b` into `a; b` (run sequentially). Leave `||` as a best-effort
-  // sequential run too. We skip rewriting if the operators appear inside quotes.
-  if (!/["']/.test(cmd)) {
-    cmd = cmd.replace(/\s*&&\s*/g, '; ').replace(/\s*\|\|\s*/g, '; ');
+  let out = '';
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+
+    if (quote) {
+      out += ch;
+      // PowerShell escapes a quote by doubling it inside the same quote type.
+      if (ch === quote) {
+        if (command[i + 1] === quote) { out += command[i + 1]; i++; }
+        else quote = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") { quote = ch; out += ch; continue; }
+
+    // A chain operator outside quotes. `&&` and `||` both become `;` — we cannot
+    // express "only on failure" without a full rewrite, and running the next
+    // command is the behaviour the model expected in the overwhelming majority
+    // of cases (`cd x && npm i`).
+    const pair = command.slice(i, i + 2);
+    if (pair === '&&' || pair === '||') {
+      out = out.replace(/\s+$/, '') + '; ';
+      i++;                                   // consume the second operator char
+      while (/\s/.test(command[i + 1] ?? '')) i++;  // and the space after it
+      continue;
+    }
+
+    out += ch;
   }
 
-  return cmd;
+  return out;
 }
 
 /**
@@ -329,16 +417,85 @@ export function explainTimeout(command: string, output: string, timeoutMs: numbe
   return `Command timed out after ${timeoutMs}ms (${secs}s) and its process tree was killed. Do not just retry it verbatim — it will time out again.\nEither raise timeout_ms, or (better for anything genuinely slow) start it with run_background and wait with watch(condition:"process_exit").\nIf this was an install or a scaffold, the working directory may now be half-written: check it before continuing.`;
 }
 
+// --- Install integrity ------------------------------------------------------
+
+/** A dependency install, as opposed to a scaffold, a build or a test run. */
+const INSTALL_RE = /\b(?:npm|yarn|pnpm|bun)\s+(?:install|i|ci|add)\b/i;
+
+/**
+ * The package names an install was asked to add, if any. `npm install` with no
+ * arguments installs the manifest and returns [].
+ */
+export function installedPackageNames(command: string): string[] {
+  const m = /\b(?:npm|yarn|pnpm|bun)\s+(?:install|i|ci|add)\b(.*)$/i.exec(command);
+  if (!m) return [];
+  return m[1]
+    .split(/[;|&]/)[0]                       // stop at the next chained command
+    .split(/\s+/)
+    .filter((t) => t && !t.startsWith('-'))
+    // Strip the version/tag suffix but keep the @scope/ prefix.
+    .map((t) => (t.startsWith('@') ? '@' + t.slice(1).split('@')[0] : t.split('@')[0]))
+    .filter((t) => /^[@a-z0-9]/i.test(t));
+}
+
+/**
+ * Did the install actually land? Reported to the agent as part of the result.
+ *
+ * An exit code of 0 is NOT proof. A package manager killed part-way through
+ * `reify` — by a timeout, by the prompt-stall detector, by the user pressing
+ * Stop — can leave a node_modules that exists, is incomplete, and has no
+ * completion marker, while some wrappers still report success. The agent then
+ * writes code against modules that are not there. Checking the filesystem costs
+ * a few stat calls and converts a silent corruption into a sentence the agent
+ * can act on.
+ */
+export function verifyInstall(
+  command: string,
+  cwd: string,
+  exitCode: number,
+): string | null {
+  if (!INSTALL_RE.test(command)) return null;
+
+  const modules = path.join(cwd, 'node_modules');
+  if (!fs.existsSync(modules)) {
+    return exitCode === 0
+      ? `INSTALL DID NOT LAND: the command reported success but ${modules} does not exist. Nothing was installed. Check that a package.json exists in this directory (${cwd}) — an install run in the wrong folder reports success and writes nothing.`
+      : `node_modules does not exist in ${cwd}; the install did not complete.`;
+  }
+
+  // npm writes node_modules/.package-lock.json as the LAST step of a successful
+  // reify, so its absence after an npm install means the tree is partial.
+  const marker = path.join(modules, '.package-lock.json');
+  const npmish = /\bnpm\s/i.test(command);
+  if (npmish && !fs.existsSync(marker)) {
+    return `INSTALL INCOMPLETE: node_modules exists in ${cwd} but npm's completion marker (node_modules/.package-lock.json) is missing, which means the install was interrupted part-way through. The dependency tree is NOT trustworthy. Delete node_modules and run the install again before writing code against it.`;
+  }
+
+  const missing = installedPackageNames(command).filter(
+    (name) => !fs.existsSync(path.join(modules, ...name.split('/'))),
+  );
+  if (missing.length > 0) {
+    return `INSTALL INCOMPLETE: these packages are still not present under ${cwd}/node_modules after the install: ${missing.join(', ')}. Do not import them yet — re-run the install and read its output.`;
+  }
+
+  return null;
+}
+
 export function runShell(
   command: string,
   workspacePath: string,
-  timeoutMs?: number
+  options?: number | ShellOptions
 ): ShellResult {
-  const effectiveTimeout = timeoutMs ?? defaultTimeoutFor(command);
+  const opts = asOptions(options);
+  const effectiveTimeout = opts.timeoutMs ?? defaultTimeoutFor(command);
   const shellLogger = logger.child({ component: 'shell', command });
-  
-  // Ensure cwd is inside workspace
-  const cwd = path.resolve(workspacePath);
+
+  // Ensure cwd is inside workspace (and is the subdirectory the caller asked for).
+  const resolvedCwd = resolveCommandCwd(workspacePath, opts.cwd);
+  if (!resolvedCwd.ok) {
+    return { stdout: '', stderr: resolvedCwd.error, exitCode: 1 };
+  }
+  const cwd = resolvedCwd.cwd;
 
   // Detect platform
   const isWindows = process.platform === 'win32';
@@ -491,14 +648,20 @@ export function runShellStreaming(
   command: string,
   workspacePath: string,
   callbacks: StreamingCallbacks,
-  timeoutMs?: number
+  options?: number | ShellOptions
 ): Promise<ShellResult> {
-  const effectiveTimeout = timeoutMs ?? defaultTimeoutFor(command);
+  const opts = asOptions(options);
+  const effectiveTimeout = opts.timeoutMs ?? defaultTimeoutFor(command);
   return new Promise((resolve, reject) => {
     const shellLogger = logger.child({ component: 'shell-streaming', command });
-    
-    // Ensure cwd is inside workspace
-    const cwd = path.resolve(workspacePath);
+
+    // Ensure cwd is inside workspace (and is the subdirectory the caller asked for).
+    const resolvedCwd = resolveCommandCwd(workspacePath, opts.cwd);
+    if (!resolvedCwd.ok) {
+      resolve({ stdout: '', stderr: resolvedCwd.error, exitCode: 1 });
+      return;
+    }
+    const cwd = resolvedCwd.cwd;
 
     // Detect platform
     const isWindows = process.platform === 'win32';
@@ -592,25 +755,48 @@ export function runShellStreaming(
       // --- Interactive-prompt stall detection --------------------------------
       // Closing stdin makes most tools abort, but some (and anything wrapping a
       // TTY check) still sit forever on the question. Rather than burn the full
-      // timeout on a process we KNOW will never proceed, watch for a prompt in
-      // the trailing output and, if nothing more is printed for a grace period,
-      // kill it and tell the agent exactly what it was asked.
-      const PROMPT_GRACE_MS = 8_000;
-      let stallHandle: NodeJS.Timeout | null = null;
-      const checkPrompt = () => {
+      // timeout on a process we KNOW will never proceed, we look for a prompt in
+      // the trailing output and kill it, telling the agent exactly what it asked.
+      //
+      // THE TEST IS SILENCE, NOT ARRIVAL. The previous version evaluated the
+      // buffer on every single output chunk, and that is what made healthy
+      // installs die: stream chunks split at arbitrary byte offsets, so a chunk
+      // ending mid-line (right after the colon of `npm warn deprecated foo@1.0:`)
+      // produced a buffer that looked exactly like an unanswered question. It
+      // then armed an 8-second grace timer — and npm is routinely quiet for
+      // longer than that while it resolves and downloads — so the process tree
+      // was killed mid-install, leaving a half-written node_modules and a
+      // "waiting for an answer that can never arrive" message about a prompt
+      // that never existed. New projects have no deprecated dependencies, which
+      // is precisely why this only ever bit projects that already existed.
+      //
+      // A process that is genuinely blocked on stdin produces NOTHING until it
+      // is answered. So the check now runs only after a real quiet period with a
+      // complete buffer, and the timer is reset by every chunk rather than being
+      // started by one. Combined with the tool-noise guard in inputDetection,
+      // ordinary install chatter can no longer be mistaken for a question.
+      const PROMPT_QUIET_MS = 20_000;
+      let quietHandle: NodeJS.Timeout | null = null;
+      const armQuietCheck = () => {
         if (timedOut || promptStall) return;
-        const detection = detectInputPrompt(stdout + stderr);
-        if (stallHandle) { clearTimeout(stallHandle); stallHandle = null; }
-        if (!detection) return;
-        stallHandle = setTimeout(() => {
-          if (timedOut) return;
+        if (quietHandle) clearTimeout(quietHandle);
+        quietHandle = setTimeout(() => {
+          if (timedOut || promptStall) return;
+          const detection = detectInputPrompt(stdout + stderr);
+          // No prompt in view: the command is just slow. Say nothing and let the
+          // overall timeout be the only clock. Deliberately NOT re-armed — with
+          // no new output the verdict cannot change, so re-checking is pure noise.
+          if (!detection) return;
           promptStall = detection.prompt;
           shellLogger.warn('Command is blocked on an interactive prompt — killing it', {
-            command, prompt: detection.prompt, kind: detection.kind,
+            command, prompt: detection.prompt, kind: detection.kind, quietMs: PROMPT_QUIET_MS,
           });
           killProcessTree(child.pid, () => child.kill('SIGTERM'));
-        }, PROMPT_GRACE_MS);
+        }, PROMPT_QUIET_MS);
       };
+      // Armed from the start so a command that prints its question immediately
+      // and then goes silent forever is still caught.
+      armQuietCheck();
 
       // Stream stdout
       child.stdout?.on('data', (data: Buffer) => {
@@ -619,7 +805,7 @@ export function runShellStreaming(
         if (callbacks.onStdout) {
           callbacks.onStdout(text);
         }
-        checkPrompt();
+        armQuietCheck();
       });
 
       // Stream stderr
@@ -629,13 +815,13 @@ export function runShellStreaming(
         if (callbacks.onStderr) {
           callbacks.onStderr(text);
         }
-        checkPrompt();
+        armQuietCheck();
       });
 
       // Handle completion
       child.on('close', (code: number | null) => {
         clearTimeout(timeoutHandle);
-        if (stallHandle) clearTimeout(stallHandle);
+        if (quietHandle) clearTimeout(quietHandle);
         const duration = Date.now() - startTime;
         const exitCode = timedOut || promptStall ? 124 : (code ?? 1);
 
@@ -683,6 +869,7 @@ export function runShellStreaming(
       // Handle errors
       child.on('error', (err: Error) => {
         clearTimeout(timeoutHandle);
+        if (quietHandle) clearTimeout(quietHandle);
         const duration = Date.now() - startTime;
         shellLogger.error('Shell command error (streaming)', { 
           command, 

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { ChatMessage } from '../../types';
 import { ToolIndicator } from '../Shared/ToolIndicator';
+import { ToolStepGroup, type ToolStepSummary } from '../Shared/ToolStepGroup';
 import { ApprovalCard } from '../Shared/ApprovalCard';
 import { ApprovalPreparingCard } from '../Shared/ApprovalPreparingCard';
 import { TerminalOutput } from '../Shared/TerminalOutput';
@@ -13,6 +14,8 @@ import { Sparkles, AlertCircle, Info, Search, X, ChevronUp, ChevronDown } from '
 import { useScrollRestoration } from '../../hooks/useScrollRestoration';
 import { useTabVisibility } from '../../hooks/useTabVisibility';
 import { PromptRevertButton } from './PromptRevertButton';
+import { PlanAnchor } from './PlanAnchor';
+import { ArtifactCard } from '../Artifacts/ArtifactCard';
 import { useAppContextMenu } from '../Shared/ContextMenu';
 import { useStore } from '../../store';
 
@@ -231,6 +234,55 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
 
   const activeMatchId = matchIds[Math.min(activeMatch, Math.max(0, matchIds.length - 1))];
 
+  // Plans render as a one-line anchor at the point in the transcript where they
+  // appeared (the full plan lives in the Plans panel). Indexed by the message
+  // they were anchored to so they can be emitted right after it. Plans with no
+  // anchor — restored from a reload, say — are shown at the top.
+  const plans = useStore((s) => s.plans);
+  const anchoredPlans = useMemo(() => {
+    const byMessage = new Map<string, typeof plans>();
+    const orphans: typeof plans = [];
+    for (const p of plans) {
+      if (!p.anchorMessageId) { orphans.push(p); continue; }
+      const list = byMessage.get(p.anchorMessageId);
+      if (list) list.push(p); else byMessage.set(p.anchorMessageId, [p]);
+    }
+    return { byMessage, orphans };
+  }, [plans]);
+
+  /** One tool call's line. Shared by the standalone and grouped render paths. */
+  const renderToolCall = (msg: Extract<ChatMessage, { type: 'tool_call' }>) => {
+    const resultMsg = resultByCallId.get(msg.callId);
+    return (
+      <ToolIndicator
+        key={msg.id}
+        tool={msg.tool}
+        status={resultMsg ? 'complete' : 'executing'}
+        duration={resultMsg ? resultMsg.timestamp - msg.timestamp : undefined}
+        args={msg.args}
+        result={resultMsg?.result}
+        diff={resultMsg?.diff}
+        repeatCount={editCounts.get(msg.callId)}
+        shortcutIndex={shortcutMap.get(msg.id)}
+        progress={msg.progress}
+      />
+    );
+  };
+
+  /** The header data a ToolStepGroup needs for one of its member calls. */
+  const stepSummary = (msg: Extract<ChatMessage, { type: 'tool_call' }>): ToolStepSummary => {
+    const resultMsg = resultByCallId.get(msg.callId);
+    const result = resultMsg?.result ?? '';
+    return {
+      tool: msg.tool,
+      args: msg.args,
+      done: !!resultMsg,
+      isError: /^(error|tool (execution )?failed|cannot|could not)|failed verification/i.test(result.trim()),
+      additions: resultMsg?.diff?.reduce((n, d) => n + (d.additions || 0), 0) ?? 0,
+      deletions: resultMsg?.diff?.reduce((n, d) => n + (d.deletions || 0), 0) ?? 0,
+    };
+  };
+
   // Auto-scroll to the newest content — coalesced to ONE scroll per animation
   // frame. scrollToBottom() reads scrollHeight (a forced synchronous reflow);
   // doing that on every streamed token, against an ever-growing un-virtualized
@@ -260,6 +312,19 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
   }), [messages]);
 
   const toolResultMap = useMemo(() => buildToolCallMap(messages), [messages]);
+
+  /** Result message per tool call id — one pass instead of a find() per render. */
+  const resultByCallId = useMemo(() => {
+    const m = new Map<string, Extract<ChatMessage, { type: 'tool_result' }>>();
+    for (const msg of messages) if (msg.type === 'tool_result') m.set(msg.callId, msg);
+    return m;
+  }, [messages]);
+
+  const messageById = useMemo(() => {
+    const m = new Map<string, ChatMessage>();
+    for (const msg of messages) m.set(msg.id, msg);
+    return m;
+  }, [messages]);
 
   // Consolidate runs of consecutive edits to the SAME file into one block, so
   // many sequential edit_file/append_file calls don't spam the transcript. We
@@ -292,6 +357,44 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
     }
     return { skipIds: skip, editCounts: counts };
   }, [visibleMessages]);
+
+  /**
+   * Runs of consecutive tool calls, so a burst of steps renders as ONE
+   * collapsible block instead of N loose lines (see ToolStepGroup).
+   *
+   * A run is broken by anything that isn't a tool call, its result, or a
+   * transient status line — prose, an approval, an error, a delegation. Those
+   * are the moments the agent genuinely changes what it's doing, and they are
+   * exactly where a reader expects one block to end and the next to begin.
+   *
+   * Single calls are deliberately NOT grouped: wrapping one line in a header
+   * that says "1 step" adds chrome and removes nothing.
+   */
+  const { groupLead, groupedIds } = useMemo(() => {
+    const lead = new Map<string, string[]>();
+    const grouped = new Set<string>();
+    let currentLead: string | null = null;
+    for (const m of visibleMessages) {
+      if (skipIds.has(m.id)) continue;
+      if (m.type === 'tool_call') {
+        if (currentLead === null) { currentLead = m.id; lead.set(m.id, [m.id]); }
+        else { lead.get(currentLead)!.push(m.id); grouped.add(m.id); }
+      } else if (m.type !== 'tool_result' && m.type !== 'status') {
+        currentLead = null;
+      }
+    }
+    // EVERY run gets a group, including a run of one.
+    //
+    // Dropping single-call runs seemed tidier and was actually the bug behind
+    // "it leaks tool calls then hides them": the first call of a burst rendered
+    // bare, and the instant a second arrived the run became a group and both
+    // jumped inside a bordered container — which then collapsed. A step you had
+    // been reading moved and vanished. Keeping the container from the very
+    // first call means a step is only ever added below the previous one.
+    // ToolStepGroup renders a run of one with no header, so nothing is gained
+    // by special-casing it here and the stability is worth everything.
+    return { groupLead: lead, groupedIds: grouped };
+  }, [visibleMessages, skipIds]);
 
   // Number shortcuts: map the LAST 9 tool calls to 1..9 (most recent = 1) so the
   // user can press a digit to expand/collapse a recent tool call.
@@ -384,31 +487,31 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
               />
             );
 
-          case 'tool_call':
-            // Check if this tool call has a result
-            const hasResult = toolResultMap.has(msg.callId);
-            const resultMsg = messages.find(
-              (m): m is Extract<ChatMessage, { type: 'tool_result' }> =>
-                m.type === 'tool_result' && m.callId === msg.callId
-            );
-            const duration = hasResult && resultMsg
-              ? resultMsg.timestamp - msg.timestamp
-              : undefined;
+          case 'tool_call': {
+            // A member of a run renders inside its group's block, not here.
+            if (groupedIds.has(msg.id)) return null;
 
+            const members = groupLead.get(msg.id);
+            if (!members) return renderToolCall(msg);
+
+            const memberMsgs = members
+              .map((id) => messageById.get(id))
+              .filter((m): m is Extract<ChatMessage, { type: 'tool_call' }> => m?.type === 'tool_call');
+            const steps = memberMsgs.map(stepSummary);
+            // Wall time for the burst: first call started → last result landed.
+            const lastResult = resultByCallId.get(memberMsgs[memberMsgs.length - 1]?.callId ?? '');
+            const groupDuration = lastResult && steps.every((s) => s.done)
+              ? lastResult.timestamp - msg.timestamp
+              : undefined;
+            // No "is this the newest block" check any more: groups are collapsed
+            // by default whether or not they are still running, so their state
+            // no longer depends on what comes after them in the transcript.
             return (
-              <ToolIndicator
-                key={msg.id}
-                tool={msg.tool}
-                status={hasResult ? 'complete' : 'executing'}
-                duration={duration}
-                args={msg.args}
-                result={resultMsg?.result}
-                diff={resultMsg?.diff}
-                repeatCount={editCounts.get(msg.callId)}
-                shortcutIndex={shortcutMap.get(msg.id)}
-                progress={msg.progress}
-              />
+              <ToolStepGroup key={msg.id} steps={steps} durationMs={groupDuration}>
+                {memberMsgs.map(renderToolCall)}
+              </ToolStepGroup>
             );
+          }
 
           case 'tool_result':
             // Already handled inside tool_call bubble, skip rendering separately
@@ -478,11 +581,15 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
           case 'parallel_group':
             return <ParallelAgentsPanel key={msg.id} lanes={msg.lanes} />;
 
+          case 'artifact':
+            return <ArtifactCard key={msg.id} artifactId={msg.artifactId} />;
+
           default:
             return null;
         }
         })();
-        if (node === null) return null;
+        const plansHere = anchoredPlans.byMessage.get(msg.id);
+        if (node === null && !plansHere) return null;
         return (
           <div
             key={msg.id}
@@ -490,6 +597,7 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
             className={isActiveMatch ? 'rounded-lg ring-2 ring-accent/60 ring-offset-2 ring-offset-surface-0 transition-all' : ''}
           >
             {node}
+            {plansHere?.map((p) => <PlanAnchor key={p.id} plan={p} />)}
           </div>
         );
       })}

@@ -1,9 +1,71 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { ChatMessage, Session, Settings, FileDiff, Spec, ContextUsage } from '../types';
+import type { ChatMessage, Session, Settings, FileDiff, Spec, ContextUsage, Artifact, ArtifactKind } from '../types';
 
 /** A context that can be opened as a panel in the right-side stack. */
-export type RightContextId = 'preview' | 'background' | 'diff' | 'terminal' | 'spec' | 'tasks' | 'audit';
+export type RightContextId =
+  | 'preview' | 'background' | 'diff' | 'terminal' | 'spec' | 'tasks' | 'audit'
+  | 'plans' | 'artifacts';
+
+/** Every RightContextId, for validating what comes back out of persistence. */
+export const RIGHT_CONTEXT_IDS: RightContextId[] = [
+  'preview', 'background', 'diff', 'terminal', 'spec', 'tasks', 'audit', 'plans', 'artifacts',
+];
+
+export type PlanStep = { title: string; status: 'todo' | 'in_progress' | 'done' };
+
+/** One plan as it appeared in the thread. `owner` is the MAIN/AGENT tag. */
+export interface PlanRecord {
+  id: string;
+  owner: 'main' | 'agent';
+  steps: PlanStep[];
+  createdAt: number;
+  updatedAt: number;
+  /** Chat message this plan was announced at, for the inline anchor. */
+  anchorMessageId: string | null;
+}
+
+/** Identity of a plan: its step titles, in order. Statuses are progress.
+ *  Joined on a character that cannot occur in a title, so two different plans
+ *  can never collide by concatenation. */
+const planSignature = (steps: PlanStep[]) => steps.map((s) => s.title).join(String.fromCharCode(31));
+
+/**
+ * Fold a plan update into the history: progress on the owner's latest plan if
+ * the steps are the same ones, otherwise a new plan appended after it.
+ */
+function recordPlan(
+  state: { plans: PlanRecord[]; messages: ChatMessage[] },
+  owner: 'main' | 'agent',
+  steps: PlanStep[],
+): PlanRecord[] {
+  // Defensive on both sides. This runs INSIDE a zustand set(), so anything that
+  // throws here takes the whole update down with it — including the agentPlan
+  // assignment beside it — and the symptom would be a plan that never appears
+  // anywhere, with no error the user could act on.
+  const existing = Array.isArray(state.plans) ? state.plans : [];
+  if (!Array.isArray(steps) || steps.length === 0) return existing;
+  const now = Date.now();
+  const idx = [...existing].reverse().findIndex((p) => p.owner === owner);
+  const latest = idx === -1 ? null : existing[existing.length - 1 - idx];
+  if (latest && planSignature(latest.steps) === planSignature(steps)) {
+    const plans = state.plans.slice();
+    plans[state.plans.length - 1 - idx] = { ...latest, steps, updatedAt: now };
+    return plans;
+  }
+  const lastMessage = state.messages[state.messages.length - 1];
+  return [
+    ...state.plans,
+    {
+      id: `plan_${now.toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      owner,
+      steps,
+      createdAt: now,
+      updatedAt: now,
+      anchorMessageId: lastMessage?.id ?? null,
+    },
+  ];
+}
 
 /**
  * Normalize a spec coming off the wire so array fields are NEVER undefined.
@@ -138,6 +200,12 @@ interface AppState {
   agentPlan: Array<{ title: string; status: 'todo' | 'in_progress' | 'done' }>;
   /** A worker sub-agent's own mini-plan, shown separately so it never clobbers the main plan. */
   workerPlan: Array<{ title: string; status: 'todo' | 'in_progress' | 'done' }>;
+  /** Every plan this thread has produced, in order, tagged MAIN or AGENT. */
+  plans: PlanRecord[];
+  /** Agent-authored documents for the current workspace, newest first. */
+  artifacts: Artifact[];
+  /** Which artifact the panel is showing. */
+  activeArtifactId: string | null;
   pendingQuestion: { questionId: string; question: string; options?: string[] } | null;
 
   // Command palette
@@ -192,6 +260,16 @@ interface AppState {
   /** Create or update a tool_call message keyed by callId. A `tool_started`
    *  event creates it (args unknown yet); the later `tool_call` fills in args. */
   upsertToolCall: (callId: string, tool: string, args?: Record<string, unknown>) => void;
+  upsertToolResult: (callId: string, msg: ChatMessage) => void;
+  /** Record an artifact write from the agent, and place/refresh its chat card. */
+  upsertArtifact: (a: {
+    id: string; title: string; kind: ArtifactKind; language?: string;
+    version: number; body: string; note?: string; updatedAt: number;
+  }) => void;
+  /** Replace the artifact list wholesale (from the REST load on workspace open). */
+  setArtifacts: (artifacts: Artifact[]) => void;
+  setActiveArtifact: (id: string | null) => void;
+  removeArtifact: (id: string) => void;
   updateToolProgress: (callId: string, progress: { path?: string; bytes: number; lines: number }) => void;
   /** Live context-window usage for the active model, driven by the agent loop. */
   contextUsage: ContextUsage | null;
@@ -361,6 +439,9 @@ export const useStore = create<AppState>()(
       taskProgress: {},
       agentPlan: [],
       workerPlan: [],
+      plans: [],
+      artifacts: [],
+      activeArtifactId: null,
       pendingQuestion: null,
       commandPaletteOpen: false,
 
@@ -488,6 +569,71 @@ export const useStore = create<AppState>()(
       };
     }),
 
+  /**
+   * A tool call's result, keyed by the call it belongs to. Upserted rather than
+   * appended for the same reason upsertToolCall is: one call must render as one
+   * block. A plain append meant a tool_result arriving twice for the same
+   * callId — a reconnect replay, or an overlapping run — silently produced two
+   * identical result blocks under one call, which reads as the tool having run
+   * twice even when it hadn't.
+   */
+  upsertToolResult: (callId, msg) =>
+    set((state) => {
+      const idx = state.messages.findIndex((m) => m.type === 'tool_result' && m.callId === callId);
+      if (idx >= 0) {
+        const messages = state.messages.slice();
+        messages[idx] = { ...messages[idx], ...msg } as ChatMessage;
+        return { messages };
+      }
+      return { messages: [...state.messages, msg] };
+    }),
+
+  /**
+   * An artifact write from the agent: fold the new version into the document's
+   * history, and make sure the transcript has exactly ONE card for it.
+   *
+   * Revisions are the reason the card is upserted rather than appended. An
+   * agent that refines a document four times would otherwise leave four cards
+   * for one document, three of them stale — and the user would have to guess
+   * which is current. One card, always showing the latest version, is both
+   * truthful and what the transcript has room for.
+   */
+  upsertArtifact: (a) =>
+    set((state) => {
+      const idx = state.artifacts.findIndex((x) => x.id === a.id);
+      const version = { version: a.version, content: a.body, createdAt: a.updatedAt, note: a.note };
+      let artifacts: Artifact[];
+      if (idx >= 0) {
+        const prev = state.artifacts[idx];
+        const versions = prev.versions.some((v) => v.version === a.version)
+          ? prev.versions.map((v) => (v.version === a.version ? version : v))
+          : [...prev.versions, version];
+        artifacts = state.artifacts.slice();
+        artifacts[idx] = { ...prev, title: a.title, kind: a.kind, language: a.language, updatedAt: a.updatedAt, versions };
+      } else {
+        artifacts = [
+          { id: a.id, title: a.title, kind: a.kind, language: a.language, createdAt: a.updatedAt, updatedAt: a.updatedAt, versions: [version] },
+          ...state.artifacts,
+        ];
+      }
+
+      const hasCard = state.messages.some((m) => m.type === 'artifact' && m.artifactId === a.id);
+      const messages = hasCard
+        ? state.messages
+        : [...state.messages, { id: nanoid(), type: 'artifact' as const, artifactId: a.id, timestamp: Date.now() }];
+
+      return { artifacts, messages, activeArtifactId: a.id };
+    }),
+
+  setArtifacts: (artifacts) => set({ artifacts }),
+  setActiveArtifact: (id) => set({ activeArtifactId: id }),
+  removeArtifact: (id) =>
+    set((state) => ({
+      artifacts: state.artifacts.filter((a) => a.id !== id),
+      messages: state.messages.filter((m) => !(m.type === 'artifact' && m.artifactId === id)),
+      activeArtifactId: state.activeArtifactId === id ? null : state.activeArtifactId,
+    })),
+
   /** Live progress for a tool call whose arguments are still streaming. Stored
    *  on the message so a big write_file shows its path and growing line count
    *  instead of an unchanging spinner. */
@@ -537,15 +683,34 @@ export const useStore = create<AppState>()(
   // Append a chunk of reasoning to the live thinking bubble. Reasoning is
   // streamed separately from the answer and accumulated into one collapsible
   // bubble per turn so not a single emitted token is lost.
+  /**
+   * Add reasoning to the current thinking bubble, creating one only when this
+   * is genuinely a new reasoning phase.
+   *
+   * The subtlety is what counts as "new". Appending whenever the tail isn't a
+   * live thinking bubble looks right until reasoning arrives LATE — after the
+   * answer has already started painting. That produced the worst possible
+   * reading of the transcript: one continuous thought split into two blocks
+   * with the response wedged between them, as if the model had thought, spoken,
+   * and then thought again. The backend now orders the two streams so this
+   * should not happen, but the client must not be able to render nonsense if a
+   * chunk ever arrives out of order.
+   *
+   * So we scan back for the reasoning block this delta belongs to, and stop at
+   * the things that genuinely END a reasoning phase: the user's turn, or a tool
+   * call (after a tool runs, the model really is thinking afresh). Plain
+   * assistant prose does NOT end it — that is precisely the case being fixed.
+   */
   appendThinking: (delta) =>
     set((state) => {
       const messages = [...state.messages];
-      // Reuse the last thinking bubble only if it's still streaming AND no
-      // assistant/tool output has been appended after it (i.e. it's the tail).
-      const last = messages[messages.length - 1];
-      if (last && last.type === 'thinking' && last.streaming) {
-        messages[messages.length - 1] = { ...last, content: last.content + delta } as ChatMessage;
-        return { messages };
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.type === 'thinking') {
+          messages[i] = { ...m, content: m.content + delta } as ChatMessage;
+          return { messages };
+        }
+        if (m.type === 'user' || m.type === 'tool_call' || m.type === 'tool_result') break;
       }
       return {
         messages: [
@@ -555,7 +720,13 @@ export const useStore = create<AppState>()(
       };
     }),
 
-  // Mark the live thinking bubble as finished (stops the shimmer).
+  /**
+   * Mark the live thinking bubble as finished (stops the shimmer).
+   *
+   * The scan mirrors appendThinking's, and must: reasoning that got merged back
+   * into a bubble sitting above the answer would otherwise keep shimmering
+   * forever, because the old scan stopped the moment it passed assistant text.
+   */
   finalizeThinking: () =>
     set((state) => {
       const messages = [...state.messages];
@@ -565,8 +736,7 @@ export const useStore = create<AppState>()(
           messages[i] = { ...m, streaming: false } as ChatMessage;
           break;
         }
-        // Stop scanning once we pass non-thinking tail content.
-        if (m.type === 'assistant' || m.type === 'tool_call') break;
+        if (m.type === 'user' || m.type === 'tool_call' || m.type === 'tool_result') break;
       }
       return { messages };
     }),
@@ -611,6 +781,9 @@ export const useStore = create<AppState>()(
       pendingDiffs: [],
       agentPlan: [],
       workerPlan: [],
+      plans: [],
+      artifacts: [],
+      activeArtifactId: null,
       taskProgress: {},
       pendingQuestion: null,
       // A half-finished run must not appear to continue into the new thread.
@@ -990,8 +1163,20 @@ export const useStore = create<AppState>()(
   clearTaskProgress: () => set({ taskProgress: {} }),
 
   // --- Agent plan + questions ---
-  setAgentPlan: (steps) => set({ agentPlan: steps }),
-  setWorkerPlan: (steps) => set({ workerPlan: steps }),
+  //
+  // Plans are kept as a HISTORY, not a single current snapshot. A run routinely
+  // produces several — the lead's plan, then a worker's, then a revised lead
+  // plan after the worker reports — and a single slot meant each one silently
+  // overwrote the last. The thread's actual shape of work was unrecoverable
+  // five minutes later. `plans` keeps every one, tagged by owner, in the order
+  // it appeared, with an anchor into the transcript so you can see WHERE the
+  // agent changed its mind.
+  //
+  // A revision is distinguished from a tick-off by the step TITLES: same
+  // titles, new statuses → the same plan progressing, updated in place. New
+  // titles → a genuinely new plan, appended.
+  setAgentPlan: (steps) => set((s) => ({ agentPlan: steps, plans: recordPlan(s, 'main', steps) })),
+  setWorkerPlan: (steps) => set((s) => ({ workerPlan: steps, plans: recordPlan(s, 'agent', steps) })),
   setPendingQuestion: (q) => set({ pendingQuestion: q }),
   // When the agent stops, no plan step should still look "in progress" (stuck
   // spinner). We don't assume completion — revert in_progress steps to todo so
@@ -1117,9 +1302,10 @@ export const useStore = create<AppState>()(
           ...current,
           ...p,
           agentPlan: Array.isArray(p.agentPlan) ? p.agentPlan : current.agentPlan,
+          plans: Array.isArray(p.plans) ? p.plans : current.plans,
           rightPanelTab: validRight.includes(p.rightPanelTab as string) ? p.rightPanelTab! : 'tasks',
           rightStack: Array.isArray(p.rightStack)
-            ? (p.rightStack as string[]).filter((x) => ['preview', 'background', 'diff', 'terminal', 'spec', 'tasks', 'audit'].includes(x)) as RightContextId[]
+            ? (p.rightStack as string[]).filter((x) => (RIGHT_CONTEXT_IDS as string[]).includes(x)) as RightContextId[]
             : current.rightStack,
         };
       },

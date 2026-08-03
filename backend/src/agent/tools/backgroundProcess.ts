@@ -41,6 +41,9 @@ interface BackgroundProcess {
   /** Generic subscribers (watchers). Notified on new output and on exit, so a
    *  watcher learns the instant something happens instead of polling for it. */
   listeners: Set<(ev: ProcessEvent) => void>;
+  /** True once the exit event has been emitted. Node can fire both 'exit' and
+   *  'error' for one process; subscribers must see the end exactly once. */
+  settled: boolean;
 }
 
 /** What a process subscriber is told. Deliberately small: the watcher reads
@@ -185,7 +188,7 @@ class BackgroundProcessManager {
     const p: BackgroundProcess = {
       id, command, cwd, proc,
       output: '', startedAt: Date.now(), exitCode: null, status: 'running', readOffset: 0,
-      awaitingInput: null, detectedUrl: null, onUrlDetected, listeners: new Set(),
+      awaitingInput: null, detectedUrl: null, onUrlDetected, listeners: new Set(), settled: false,
     };
     this.procs.set(id, p);
 
@@ -195,20 +198,27 @@ class BackgroundProcessManager {
 
     proc.stdout.on('data', (d: Buffer) => this.append(p, d.toString('utf8')));
     proc.stderr.on('data', (d: Buffer) => this.append(p, d.toString('utf8')));
-    proc.on('exit', (code) => {
+
+    // 'exit' and 'error' can BOTH fire for the same process, and a spawn failure
+    // (ENOENT, EACCES) fires only 'error' — never 'exit'. Emitting from one path
+    // only meant a command that died before it could even start left every
+    // watcher on it hanging until its deadline, then reporting a timeout instead
+    // of the actual failure. Both paths now finalise, exactly once.
+    const finalize = (code: number | null, note: string) => {
+      if (p.settled) return;
+      p.settled = true;
       p.exitCode = code;
       if (p.status === 'running') p.status = 'exited';
       p.awaitingInput = null;
-      this.append(p, `\n[process exited with code ${code ?? 0}]\n`);
-      logger.info('Background process exited', { id, code });
+      this.append(p, `\n${note}\n`);
+      logger.info('Background process finished', { id, code, note });
       // Emitted AFTER the append above so a watcher waiting on exit sees the
       // final output (including any error the command printed on its way out).
       this.emit(p, { type: 'exit', exitCode: code });
-    });
-    proc.on('error', (err) => {
-      p.status = 'exited';
-      this.append(p, `\n[process error: ${err.message}]\n`);
-    });
+    };
+
+    proc.on('exit', (code) => finalize(code, `[process exited with code ${code ?? 0}]`));
+    proc.on('error', (err) => finalize(null, `[process failed to start: ${err.message}]`));
 
     logger.info('Background process started', { id, command, cwd });
     return { id, reused: false };

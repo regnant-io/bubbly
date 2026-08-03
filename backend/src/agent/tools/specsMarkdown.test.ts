@@ -108,7 +108,7 @@ describe('tasks.md as the source of truth', () => {
  * requirements.md back is what fixes that.
  */
 describe('requirements.md parsing', () => {
-  it('reads EARS-style properties, stripping ids and kind prefixes', () => {
+  it('reads EARS-style properties, keeping ids and stripping kind prefixes', () => {
     const md = [
       '# Performance Profiling',
       '',
@@ -121,9 +121,11 @@ describe('requirements.md parsing', () => {
       '- **P2** (non-functional): The app shall have zero Long Tasks over 50ms.',
     ].join('\n');
 
+    // The id is KEPT: design.md and tasks.md refer back to it ("Requirements:
+    // P1"), so dropping it would sever the traceability the spec format runs on.
     expect(parseRequirementsMarkdown(md)).toEqual([
-      'When scrolling, the frame rate shall stay at 60fps.',
-      'The app shall have zero Long Tasks over 50ms.',
+      'P1: When scrolling, the frame rate shall stay at 60fps.',
+      'P2: The app shall have zero Long Tasks over 50ms.',
     ]);
   });
 

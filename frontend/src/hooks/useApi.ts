@@ -307,3 +307,75 @@ export async function fetchSpecs(workspace: string) {
   const res = await fetch(`${BASE}/files/specs?workspace=${encodeURIComponent(workspace)}`);
   return res.json();
 }
+
+// --- Artifacts ---------------------------------------------------------------
+
+export async function fetchArtifacts(workspace: string) {
+  const res = await fetch(`${BASE}/files/artifacts?workspace=${encodeURIComponent(workspace)}`);
+  if (!res.ok) throw new Error(`could not list artifacts: ${res.status}`);
+  return res.json() as Promise<{ artifacts: Array<{ id: string }> }>;
+}
+
+export async function fetchArtifact(workspace: string, id: string) {
+  const res = await fetch(`${BASE}/files/artifacts/${encodeURIComponent(id)}?workspace=${encodeURIComponent(workspace)}`);
+  if (!res.ok) throw new Error(`could not read artifact: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Copy an artifact into the workspace as a real file. Deliberately a user
+ * action, never an agent one — a document written for someone to read is not
+ * automatically a file they want committed to their repo.
+ */
+export async function saveArtifactToWorkspace(
+  workspace: string,
+  id: string,
+  version?: number,
+  path?: string,
+): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const res = await fetch(`${BASE}/files/artifacts/${encodeURIComponent(id)}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace, version, path }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || `save failed: ${res.status}`);
+  return data;
+}
+
+export async function deleteArtifactApi(workspace: string, id: string) {
+  const res = await fetch(`${BASE}/files/artifacts/${encodeURIComponent(id)}?workspace=${encodeURIComponent(workspace)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`delete failed: ${res.status}`);
+  return res.json();
+}
+
+// --- Explorer file operations ------------------------------------------------
+
+async function fileOp(op: string, body: Record<string, unknown>): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const res = await fetch(`${BASE}/files/entry/${op}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.ok === false) throw new Error(data?.error || `${op} failed (${res.status})`);
+  return data;
+}
+
+export const createEntryApi = (workspace: string, parent: string, name: string, type: 'file' | 'directory') =>
+  fileOp('create', { workspace, parent, name, type });
+
+export const renameEntryApi = (workspace: string, path: string, name: string) =>
+  fileOp('rename', { workspace, path, name });
+
+export const duplicateEntryApi = (workspace: string, path: string) =>
+  fileOp('duplicate', { workspace, path });
+
+/** Moves to the OS trash — recoverable outside Bubbly, never a hard delete. */
+export const trashEntryApi = (workspace: string, path: string) =>
+  fileOp('trash', { workspace, path });
+
+export const revealEntryApi = (workspace: string, path: string) =>
+  fileOp('reveal', { workspace, path });

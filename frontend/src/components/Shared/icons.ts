@@ -28,6 +28,7 @@ export {
   ChevronDown,
   ChevronUp,
   ArrowLeft,
+  ArrowRight,
   Download,
   Filter,
   // Status
@@ -82,4 +83,17 @@ export {
   ChevronsUpDown,
   History,
   RotateCcw,
+  // Artifacts + explorer actions
+  FileBox,
+  Pencil,
+  FolderPlus,
+  Save,
+  Image,
+  Table,
+  Globe,
+  Columns2,
+  PanelRightClose,
+  PanelLeftClose,
+  MoreHorizontal,
+  ChevronsDownUp,
 } from 'lucide-react';

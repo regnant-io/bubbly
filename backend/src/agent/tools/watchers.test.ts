@@ -146,6 +146,87 @@ describe('polled conditions', () => {
   });
 });
 
+/**
+ * A polled condition used to be a pure timer: "wait for port 5173" knew nothing
+ * about the `npm run dev` that was supposed to bind it. When that command died
+ * on startup the watcher polled a port nobody would ever open, for the whole
+ * timeout, and then blamed the clock. Binding the watcher to the command makes
+ * the failure arrive in seconds, with the reason attached.
+ */
+describe('polled conditions bound to the command that owes them', () => {
+  it('fails fast when the bound command exits before the port is ever opened', async () => {
+    const dir = tmp();
+    // The shape of a dev server that dies on startup: it prints why, then goes.
+    const id = start('node -e "console.error(\'Error: port already in use\'); process.exit(1)"', dir);
+    // A port nothing in this test ever binds.
+    const c = watchers.create(
+      { kind: 'port_open', port: 59_137, processId: id },
+      { timeoutMs: 30_000 },
+    );
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+
+    const started = Date.now();
+    const r = await watchers.wait(c.id)!;
+    expect(r.outcome).toBe('failed');
+    // Seconds, not the 30s deadline — that difference IS the fix.
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect(r.detail).toMatch(/exited with code 1/);
+    // The reason the command died must come back with the verdict, so the agent
+    // doesn't need a second round-trip to find out.
+    expect(r.output).toMatch(/port already in use/);
+  }, 35_000);
+
+  it('fails fast when the bound command never even started', async () => {
+    const dir = tmp();
+    // No such executable — this fires 'error', never 'exit'. Before the fix
+    // nothing was emitted to subscribers at all and every watcher on it hung.
+    const id = start('definitely-not-a-real-command-xyz', dir);
+    const c = watchers.create(
+      { kind: 'url_live', url: 'http://127.0.0.1:59138', processId: id },
+      { timeoutMs: 30_000 },
+    );
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+
+    const started = Date.now();
+    const r = await watchers.wait(c.id)!;
+    expect(r.outcome).toBe('failed');
+    expect(Date.now() - started).toBeLessThan(20_000);
+  }, 35_000);
+
+  it('still reports met when the condition came true, even as the command exits', async () => {
+    const dir = tmp();
+    const target = path.join(dir, 'artifact.txt');
+    // Writes the file and exits immediately — a build, not a server. The exit
+    // must not be mistaken for a failure when the thing we waited for is there.
+    // Relative to cwd, so the command has no path separators to quote through
+    // two shells.
+    const id = start(`node -e "require('fs').writeFileSync('artifact.txt', 'ok')"`, dir);
+    const c = watchers.create({ kind: 'file_exists', path: target, processId: id }, { timeoutMs: 20_000 });
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+
+    const r = await watchers.wait(c.id)!;
+    expect(r.outcome).toBe('met');
+  }, 25_000);
+
+  it('binds automatically when exactly one background process is running', async () => {
+    const dir = tmp();
+    const id = start('node -e "console.log(\'starting\'); process.exit(2)"', dir);
+    expect(id).toBeTruthy();
+    // No processId given — the watcher should still notice the only running
+    // command dying rather than polling to the deadline.
+    const c = watchers.create({ kind: 'port_open', port: 59_139 }, { timeoutMs: 30_000 });
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+
+    const r = await watchers.wait(c.id)!;
+    expect(r.outcome).toBe('failed');
+    expect(r.detail).toMatch(/only background process/);
+  }, 35_000);
+});
+
 describe('always settles', () => {
   it('times out on a condition that never becomes true', async () => {
     const dir = tmp();

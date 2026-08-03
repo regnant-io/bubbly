@@ -64,6 +64,10 @@ const WS_URL = resolveWsUrl();
 let wsInstance: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
+
+/** How long a message may wait for the socket before it is dropped instead of
+ *  arriving long after the user has moved on. */
+const SEND_QUEUE_TTL_MS = 15_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 16000;
@@ -89,6 +93,14 @@ export function useWebSocket() {
   const streamBufferRef = useRef('');
   const shownLenRef = useRef(0);
   const thinkBufferRef = useRef('');
+  /**
+   * Every answer token streamed during the CURRENT turn, across all of its
+   * segments. `streamBufferRef` is emptied each time a segment is painted, so
+   * it cannot answer "have we shown this already?" once a tool call has split
+   * the narration in two — which is exactly when the duplicate-bubble bug fired.
+   * Cleared when the turn ends.
+   */
+  const streamedThisTurnRef = useRef('');
   const rafRef = useRef<number | null>(null);
   const thinkRafRef = useRef<number | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('disconnected');
@@ -133,6 +145,21 @@ export function useWebSocket() {
     rafRef.current = typeof requestAnimationFrame !== 'undefined'
       ? requestAnimationFrame(tick)
       : (setTimeout(tick, 16) as unknown as number);
+  }, []);
+
+  /**
+   * Has this exact text already been painted during the current turn?
+   *
+   * Compared on whitespace-normalized text and anchored to the END, because the
+   * `message` event carries the model's whole answer for the turn while the
+   * deltas may have arrived across several segments broken up by tool calls.
+   * The answer we are checking is always the most recent thing streamed.
+   */
+  const alreadyStreamed = useCallback((content: string): boolean => {
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+    const seen = norm(streamedThisTurnRef.current);
+    const incoming = norm(content);
+    return incoming.length > 0 && seen.endsWith(incoming);
   }, []);
 
   // Finalize the current answer segment: cancel the reveal loop, paint the FULL
@@ -287,6 +314,9 @@ export function useWebSocket() {
         // The loop paints a few characters per frame toward this target, so the
         // answer streams out smoothly regardless of network chunk size.
         streamBufferRef.current += event.content;
+        // Remember everything streamed this turn, so `message` can tell whether
+        // it is delivering something new or repeating what we already painted.
+        streamedThisTurnRef.current += event.content;
         scheduleStreamFlush();
         break;
 
@@ -296,8 +326,12 @@ export function useWebSocket() {
         }
         finalizeThinking();
         if (streamBufferRef.current) {
+          // Text is still sitting in the reveal buffer: this event is the
+          // signal to paint the rest of it.
           flushStreamFinal();
-        } else if (event.content) {
+        } else if (event.content && !alreadyStreamed(event.content)) {
+          // Nothing buffered AND we have not shown this text — a provider that
+          // returns its answer in one piece rather than streaming it.
           store.addMessage({
             id: nanoid(),
             type: 'assistant',
@@ -306,6 +340,40 @@ export function useWebSocket() {
             timestamp: Date.now(),
           });
         }
+        // THE `alreadyStreamed` GUARD IS THE FIX FOR "the response branches
+        // after a tool call".
+        //
+        // The backend emits `message` with the model's FULL text for the turn,
+        // in addition to having streamed that same text as deltas. Normally the
+        // deltas are still in the reveal buffer when it lands, so the first
+        // branch just paints them and nothing is duplicated. But a tool call
+        // changes the order: `tool_started` fires mid-stream and flushes the
+        // buffer into a finished bubble, so by the time `message` arrives the
+        // buffer is empty — and the old code read that as "nothing has been
+        // shown", adding a SECOND bubble with the identical text. The reply
+        // appeared to fork: the same paragraph, once before the tool call and
+        // again after it, mid-generation. It only happened with providers that
+        // report a tool starting while its arguments are still streaming, which
+        // is why it looked tied to particular tools and came and went.
+        break;
+
+      case 'artifact':
+        // A document the agent authored on purpose. It gets a card in the
+        // transcript and the full document goes to the Artifacts panel — the
+        // whole point being that its contents never land in the chat log.
+        finalizeThinking();
+        flushStreamFinal();
+        store.upsertArtifact({
+          id: event.id,
+          title: event.title,
+          kind: event.kind,
+          language: event.language,
+          version: event.version,
+          body: event.body,
+          note: event.note,
+          updatedAt: event.updatedAt,
+        });
+        store.openRightContext('artifacts');
         break;
 
       case 'tool_started':
@@ -348,7 +416,9 @@ export function useWebSocket() {
         break;
 
       case 'tool_result':
-        store.addMessage({
+        // Upsert by callId: one call, one result block, however many times the
+        // event arrives.
+        store.upsertToolResult(event.id, {
           id: nanoid(),
           type: 'tool_result',
           tool: event.tool,
@@ -538,6 +608,20 @@ export function useWebSocket() {
         });
         break;
 
+      case 'watcher_settled':
+        // A registered wait finished. Shown as a status line either way; if it
+        // was DETACHED the backend is already restarting this thread with the
+        // result, and the run's own events will follow.
+        store.addMessage({
+          id: nanoid(),
+          type: 'status',
+          content: event.outcome === 'met'
+            ? `Finished waiting: ${event.label}`
+            : `Stopped waiting for ${event.label} — ${event.outcome}`,
+          timestamp: Date.now(),
+        });
+        break;
+
       case 'done': {
         store.setIsRunning(false);
         store.stopRunTimer();
@@ -545,6 +629,9 @@ export function useWebSocket() {
         store.reconcilePlanOnStop();
         finalizeThinking();
         flushStreamFinal();
+        // The turn is over — start the "already painted" ledger fresh so it
+        // can't grow without bound, or match against a previous turn's prose.
+        streamedThisTurnRef.current = '';
         const elapsed = formatDuration(useStore.getState().lastRunDurationMs);
         const closing = summarize(lastAssistantText(), 120);
         void notifyDesktop({
@@ -813,14 +900,23 @@ export function useWebSocket() {
   }, []); // Empty deps - connect only once
 
   const sendMessage = useCallback(
-    (data: object) => {
+    (data: object, deadline?: number) => {
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(data));
-      } else {
-        console.warn('[WS] Not connected, queueing...');
-        setTimeout(() => sendMessage(data), 500);
+        return;
       }
+      // Queue while the socket comes up — but not forever. An unbounded retry
+      // meant a message sent during an outage could surface minutes later,
+      // after the user had given up and sent it again, and be acted on twice.
+      const until = deadline ?? Date.now() + SEND_QUEUE_TTL_MS;
+      if (Date.now() >= until) {
+        console.warn('[WS] Dropping a queued message: still not connected', data);
+        storeRef.current.setIsRunning(false);
+        return;
+      }
+      console.warn('[WS] Not connected, queueing...');
+      setTimeout(() => sendMessage(data, until), 500);
     },
     []
   );
@@ -828,6 +924,14 @@ export function useWebSocket() {
   const sendChat = useCallback(
     (message: string, workspacePath: string, sessionId?: string | null, threadType?: string, specId?: string) => {
       const store = storeRef.current;
+      // Belt to the backend's braces. The server refuses a second concurrent
+      // run per thread, but a send that never leaves here also never appends a
+      // duplicate user bubble to the transcript — and the reason the second one
+      // vanished stays obvious instead of arriving as an error event.
+      if (store.isRunning) {
+        console.warn('[WS] Ignoring send: a run is already in flight for this thread');
+        return;
+      }
       store.setIsRunning(true);
       store.startRunTimer();
       // Remember the thread type so the badge persists across the session.
@@ -836,6 +940,7 @@ export function useWebSocket() {
       }
       streamBufferRef.current = '';
       shownLenRef.current = 0;
+      streamedThisTurnRef.current = '';
       store.addMessage({
         id: nanoid(),
         type: 'user',
@@ -853,6 +958,29 @@ export function useWebSocket() {
     },
     [sendMessage]
   );
+
+  /**
+   * Tell the backend which thread this window is showing.
+   *
+   * Agent events carry no session id, so the server needs this to know where to
+   * stream a wake-up when a detached watcher settles. Without it, a thread you
+   * merely OPENED (rather than sent a message on since this socket connected)
+   * could never be resumed — which is the common case: start a long build, end
+   * the turn, go and look at something else, come back.
+   */
+  const focusSession = useCallback(
+    (sessionId: string | null) => {
+      sendMessage({ type: 'focus_session', sessionId });
+    },
+    [sendMessage]
+  );
+
+  // Re-announce on every change of the open thread, and again after a reconnect
+  // (the server forgets when the socket drops).
+  const currentSessionId = useStore((s) => s.currentSessionId);
+  useEffect(() => {
+    if (connectionStatus === 'connected') focusSession(currentSessionId ?? null);
+  }, [currentSessionId, connectionStatus, focusSession]);
 
   const sendApprove = useCallback(
     (approvalId: string) => {

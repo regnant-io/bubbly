@@ -38,6 +38,13 @@ export function resolveSafePath(workspacePath: string, filePath: string): string
   const relPosix = rel.replace(/\\/g, '/');
   if (relPosix === '.bubbly' || relPosix.startsWith('.bubbly/')) {
     const sub = relPosix.slice('.bubbly'.length).replace(/^\//, '');
+    // SPECS ARE THE EXCEPTION and stay in the project. They are documents about
+    // the code, written for a human to read and review, so they belong next to
+    // it — browsable in the explorer, diffable in git, committable with the
+    // change they describe. Everything else (checkpoints, artifacts, the run
+    // config, the index) is machine state with no business in the repo, and is
+    // what the redirect was actually protecting scaffolds from.
+    if (sub === 'specs' || sub.startsWith('specs/')) return resolved;
     const dataDir = getProjectDataDir(root);
     return sub ? path.join(dataDir, sub) : dataDir;
   }

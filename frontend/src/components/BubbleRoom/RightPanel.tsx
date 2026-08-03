@@ -8,9 +8,11 @@ import { DiffViewer } from '../Shared/DiffViewer';
 import { BubblyPreview } from './BubblyPreview';
 import { BackgroundProcessesPanel } from './BackgroundProcessesPanel';
 import { TerminalPanel } from '../Terminal/TerminalPanel';
-import { Monitor, Server, GitBranch, Terminal, ClipboardList, CheckCircle, Clock, X, ChevronDown } from '../Shared/icons';
+import { PlansPanel } from '../Chat/PlansPanel';
+import { ArtifactsPanel } from '../Artifacts/ArtifactsPanel';
+import { Monitor, Server, GitBranch, Terminal, ClipboardList, CheckCircle, Clock, X, ChevronDown, ListTree, FileBox } from '../Shared/icons';
 
-const META: Record<RightContextId, { label: string; icon: typeof Monitor; render: () => React.ReactNode }> = {
+export const RIGHT_PANEL_META: Record<RightContextId, { label: string; icon: typeof Monitor; render: () => React.ReactNode }> = {
   preview: { label: 'Bubbly Preview', icon: Monitor, render: () => <BubblyPreview /> },
   background: { label: 'Background', icon: Server, render: () => <BackgroundProcessesPanel /> },
   diff: { label: 'Changes', icon: GitBranch, render: () => <DiffView /> },
@@ -18,7 +20,11 @@ const META: Record<RightContextId, { label: string; icon: typeof Monitor; render
   spec: { label: 'Specs', icon: ClipboardList, render: () => <SpecPanel /> },
   tasks: { label: 'Tasks', icon: CheckCircle, render: () => <TaskQueue /> },
   audit: { label: 'Audit', icon: Clock, render: () => <AuditPanel /> },
+  plans: { label: 'Plans', icon: ListTree, render: () => <PlansPanel /> },
+  artifacts: { label: 'Artifacts', icon: FileBox, render: () => <ArtifactsPanel /> },
 };
+
+const META = RIGHT_PANEL_META;
 
 function DiffView() {
   const pendingDiffs = useStore((s) => s.pendingDiffs);

@@ -8,7 +8,9 @@ import { sessionsRouter } from './routes/sessions';
 import { filesRouter } from './routes/files';
 import { settingsRouter } from './routes/settings';
 import { mcpRouter } from './routes/mcp';
-import { runAgentLoop, resolveApproval, resolveQuestion, stopSession } from './agent/orchestrator';
+import { runAgentLoop, resolveApproval, resolveQuestion, stopSession, isSessionRunning } from './agent/orchestrator';
+import { watchers } from './agent/tools/watchers';
+import { getSession } from './session/manager';
 import { registerPreviewClient, unregisterPreviewClient, setPreviewCapability, resolvePreviewAction } from './agent/tools/previewBridge';
 import { registerSelfPort, SELF_HEADER } from './agent/tools/previewTarget';
 import { v4 as uuidv4 } from 'uuid';
@@ -98,6 +100,100 @@ function send(ws: WebSocket, event: WSServerEvent): void {
   }
 }
 
+/**
+ * Which thread each open connection is looking at.
+ *
+ * Needed because a wake-up has to stream into the RIGHT window. Agent events
+ * (text_delta, tool_call, …) carry no session id, so a wake broadcast to every
+ * socket would pour one thread's output into whatever thread the user happens
+ * to have open. This map is the answer to "who is watching session S".
+ */
+const socketSessions = new Map<WebSocket, string>();
+
+function socketsWatching(sessionId: string): WebSocket[] {
+  const out: WebSocket[] = [];
+  for (const [sock, sid] of socketSessions) {
+    if (sid === sessionId && sock.readyState === WebSocket.OPEN) out.push(sock);
+  }
+  return out;
+}
+
+/**
+ * WAKE-UP: a detached watcher settled, so start its thread again with the news.
+ *
+ * This is the other half of the "end your turn, you'll be resumed" promise the
+ * watch tool makes. Without it that promise was a polite fiction — the agent
+ * dutifully stopped, and then nothing ever happened, so the only way to actually
+ * learn a build had finished was to sit and poll, which is the exact cost the
+ * watcher system exists to avoid.
+ *
+ * Deliberately conservative about when it fires:
+ *  - DETACHED watchers only. A blocking wait already has the agent parked on it.
+ *  - Never while the thread is already running: the live run collects the result
+ *    itself via the state block, and a second loop would duplicate every tool call.
+ *  - Only when a window is actually watching that thread. Reviving a conversation
+ *    nobody has open would stream into someone else's screen.
+ *  - Never after Stop — stopSession cancels the thread's watchers outright.
+ */
+watchers.setSettleListener((notice) => {
+  const { sessionId, detached, label, outcome, detail, output, exitCode } = notice;
+
+  // Always tell any interested window, even when we won't resume: the Background
+  // panel should show that the thing finished regardless.
+  if (sessionId) {
+    for (const sock of socketsWatching(sessionId)) {
+      send(sock, { type: 'watcher_settled', id: notice.id, label, outcome, detail } as WSServerEvent);
+    }
+  }
+
+  if (!detached || !sessionId || outcome === 'cancelled') return;
+  if (isSessionRunning(sessionId)) {
+    logger.info('Watcher settled while its thread was still running — leaving it to the live run', { sessionId, id: notice.id });
+    return;
+  }
+
+  const listeners = socketsWatching(sessionId);
+  if (listeners.length === 0) {
+    logger.info('Watcher settled but no window is on that thread — result stays queued for collection', { sessionId, id: notice.id });
+    return;
+  }
+
+  const session = getSession(sessionId);
+  if (!session?.workspacePath) {
+    logger.warn('Cannot wake a thread with no workspace on record', { sessionId });
+    return;
+  }
+
+  // The wake message is written as a tool result would be, because that is what
+  // it is: the answer to a wait the agent itself asked for. It carries the
+  // outcome AND the process output, so the first thing the woken agent does is
+  // reason about the result rather than spend a turn going to fetch it.
+  const resumeMessage =
+    `[automatic wake-up] The wait you registered has finished.\n\n` +
+    `Watching: ${label}\nOutcome: ${outcome.toUpperCase()}\n${detail}\n` +
+    (exitCode != null ? `Exit code: ${exitCode}\n` : '') +
+    (output ? `\nOutput:\n${output}\n` : '') +
+    `\nContinue from here. If this failed, diagnose it from the output above rather than re-running the same thing blindly. ` +
+    `If it succeeded, carry on with the work that was waiting on it. If there is nothing left to do, say so briefly and stop.`;
+
+  logger.info('Waking a thread because its detached watcher settled', { sessionId, id: notice.id, outcome });
+
+  runAgentLoop({
+    sessionId,
+    userMessage: resumeMessage,
+    workspacePath: session.workspacePath,
+    threadType: session.threadType,
+    specId: session.specId,
+    onEvent: (event) => {
+      // Re-resolve the audience on every event: a window can be closed or
+      // switched to another thread mid-run.
+      for (const sock of socketsWatching(sessionId)) send(sock, event);
+    },
+  }).catch((err) => {
+    logger.error('Wake-up run failed', { sessionId, error: err instanceof Error ? err.message : String(err) });
+  });
+});
+
 wss.on('connection', (ws) => {
   const clientId = uuidv4();
   logger.info('WebSocket client connected', { clientId });
@@ -122,6 +218,17 @@ wss.on('connection', (ws) => {
   // Let the agent drive THIS client's live Bubbly Preview webview. Registered
   // per-client so a stale socket closing can never disable a healthy live one.
   registerPreviewClient(clientId, (event) => send(ws, event));
+
+  // Chat requests this connection has in flight, keyed by session id — with a
+  // sentinel for "a brand-new thread", which has no id yet.
+  //
+  // The orchestrator refuses a second run for a session that is already
+  // working, but it can only do that once a session id EXISTS. A double-send on
+  // a brand-new thread arrives with sessionId undefined both times, so both
+  // requests create their own session and there is nothing for that guard to
+  // match on. This closes exactly that window.
+  const NEW_THREAD = ' new-thread';
+  const chatInFlight = new Set<string>();
 
   ws.on('message', async (raw) => {
     let msg: WSClientMessage;
@@ -172,6 +279,16 @@ wss.on('connection', (ws) => {
       if (!ok) {
         send(ws, { type: 'error', message: `Question ${msg.questionId} not found or expired` });
       }
+      return;
+    }
+
+    if (msg.type === 'focus_session') {
+      // Sent whenever the user opens (or leaves) a thread. Without it a
+      // wake-up could only find windows that had SENT a message this
+      // connection — so reopening a thread and waiting for its build to
+      // finish would never resume, which is the main way this is used.
+      if (msg.sessionId) socketSessions.set(ws, msg.sessionId);
+      else socketSessions.delete(ws);
       return;
     }
 
@@ -253,13 +370,33 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      logger.info('Starting agent loop', { 
+      const flightKey = msg.sessionId ?? NEW_THREAD;
+      if (chatInFlight.has(flightKey)) {
+        logger.warn('Ignoring a duplicate chat request already in flight on this connection', {
+          sessionId: msg.sessionId ?? undefined,
+        });
+        send(ws, {
+          type: 'error',
+          message: msg.sessionId
+            ? 'That thread is already running. Wait for it to finish, or press Stop first.'
+            : 'A new thread is already starting. Give it a moment.',
+          recoverable: true,
+        });
+        return;
+      }
+      chatInFlight.add(flightKey);
+
+      logger.info('Starting agent loop', {
         workspacePath: msg.workspacePath,
         sessionId: msg.sessionId,
         messageLength: msg.message.length,
         threadType: msg.threadType,
         specId: msg.specId
       });
+
+      // Remember which thread this window is on, so a later wake-up streams
+      // into it and not into whoever else happens to be connected.
+      if (msg.sessionId) socketSessions.set(ws, msg.sessionId);
 
       // Run agent loop (non-blocking, streams events back via WebSocket)
       runAgentLoop({
@@ -268,10 +405,19 @@ wss.on('connection', (ws) => {
         workspacePath: msg.workspacePath,
         threadType: msg.threadType,
         specId: msg.specId,
-        onEvent: (event) => send(ws, event),
+        onEvent: (event) => {
+          // A brand-new thread gets its id here — that is the first moment we
+          // can associate this socket with it.
+          if (event.type === 'session_created') socketSessions.set(ws, event.sessionId);
+          send(ws, event);
+        },
       }).catch((err) => {
         logger.error('Agent loop error', { error: err instanceof Error ? err.message : String(err) });
         sendErrorEvent((event) => send(ws, event), err, { sessionId: msg.sessionId });
+      }).finally(() => {
+        // Released on EVERY exit path — a run that threw must not leave the
+        // thread permanently unable to accept another message.
+        chatInFlight.delete(flightKey);
       });
     }
   });
@@ -282,6 +428,7 @@ wss.on('connection', (ws) => {
     offTermExit();
     offTermInput();
     unregisterPreviewClient(clientId);
+    socketSessions.delete(ws);
   });
 
   ws.on('error', (err) => {

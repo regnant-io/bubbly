@@ -87,6 +87,50 @@ const SELECTION_PATTERNS: RegExp[] = [
 const QUESTION_LEADERS = /^(?:[?✔✓✗»>])\s+\S/;
 const QUESTION_TRAILERS = /(?:\?|:)\s*(?:\([^)]*\))?\s*$/;
 
+/**
+ * Log chatter that ENDS IN A COLON but is not a question.
+ *
+ * This guard exists because of a specific, expensive failure: `npm install` on
+ * an existing project prints deprecation warnings shaped exactly like a prompt —
+ *
+ *     npm warn deprecated inflight@1.0.6: This module is not supported…
+ *
+ * and the output is read in arbitrary stream chunks, so a chunk boundary landing
+ * right after that colon leaves a buffer whose last line is `npm warn deprecated
+ * inflight@1.0.6:` with no trailing newline. That is indistinguishable, to the
+ * trailer rule above, from `Project name:`. The caller then concluded the
+ * install was blocked on an unanswerable question and killed the process tree —
+ * mid-`reify`, leaving a half-written node_modules. New projects have no
+ * deprecated dependencies and so never tripped it, which is exactly why this
+ * only ever failed on projects that already existed.
+ *
+ * Matched against the last line only, before the free-text question rule (the
+ * confirm/password/pause/selection rules are specific enough not to need it).
+ */
+const TOOL_NOISE_PATTERNS: RegExp[] = [
+  // Package managers announcing something, in any of their prefix styles.
+  /^(?:npm|pnpm|yarn|bun|npx)\s+(?:warn|notice|error|err!?|info|verb|http|sill|timing)\b/i,
+  /^npm\s+ERR!/,
+  // A deprecation/advisory line: "<name>@<version>: <text>" is a report, not a question.
+  /\bdeprecated\s+\S+@\S+\s*:/i,
+  // Generic log-level prefixes used by webpack, vite, pip, cargo, gradle…
+  /^(?:warning|error|note|info|debug|trace|hint|deprecated)\b\s*[:!]?/i,
+  // Leading timestamps / bracketed log tags.
+  /^\[[^\]]{1,40}\]/,
+  /^\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?\b/i,
+  // npm/yarn summary lines.
+  /^\s*(?:added|removed|changed|audited|found|up to date)\b/i,
+  // Progress narration — a colon here introduces a value, never a question.
+  /^(?:progress|resolving|fetching|downloading|extracting|linking|building|compiling|installing|packages|dependencies|reify|idealTree)\b/i,
+  // Stack traces and file:line references.
+  /^\s*at\s+\S+\s*\(/,
+  /^\s*(?:[A-Za-z]:)?[\w./\\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|json):\d+/,
+];
+
+function isToolNoise(line: string): boolean {
+  return TOOL_NOISE_PATTERNS.some((p) => p.test(line));
+}
+
 function endsWithoutNewline(text: string): boolean {
   const cleaned = clean(text);
   return cleaned.length > 0 && !/\n\s*$/.test(cleaned);
@@ -148,8 +192,12 @@ export function detectInputPrompt(recentOutput: string): InputPromptDetection | 
     };
   }
 
-  // Selection menus (arrow-key driven).
-  if (SELECTION_PATTERNS.some((p) => p.test(tail))) {
+  // Selection menus (arrow-key driven). Scoped to the RECENT tail rather than
+  // the whole 4KB buffer: the pointer glyphs (❯ ›) are used decoratively by
+  // plenty of tools, and one appearing thousands of characters ago says nothing
+  // about whether the process is waiting right now.
+  const recentLines = clean(tail).split('\n').slice(-10).join('\n');
+  if (SELECTION_PATTERNS.some((p) => p.test(recentLines))) {
     return { waiting: true, kind: 'selection', prompt: line };
   }
 
@@ -160,6 +208,10 @@ export function detectInputPrompt(recentOutput: string): InputPromptDetection | 
     // log lines that are short and lowercase-keyed are still likely prompts, so
     // we only exclude clear false positives.
     if (/^https?:\/\//i.test(line)) return null;
+    // …and against tool chatter that merely ends in a colon. See TOOL_NOISE_PATTERNS:
+    // this is what stopped `npm warn deprecated foo@1.0.0:` from being read as a
+    // question and getting a healthy install killed.
+    if (isToolNoise(line)) return null;
     return {
       waiting: true,
       kind: 'question',

@@ -1,8 +1,11 @@
 import React, { Suspense } from 'react';
 import { useStore } from '../../store';
 import { fetchFileContent, saveFileContent } from '../../hooks/useApi';
-import { X, FileCode } from '../Shared/icons';
+import { X, FileCode, Search, Wrench, Columns2, PanelRightClose, ChevronRight, Save } from '../Shared/icons';
 import { getFileIcon } from './fileIcons';
+import { ResizablePanel } from '../Shared/ResizablePanel';
+import { EditorPreview, defaultMode, hasRenderedForm, type PreviewMode } from './EditorPreview';
+import { useAppContextMenu } from '../Shared/ContextMenu';
 
 // Lazy load Monaco to avoid blocking initial render
 const MonacoEditor = React.lazy(() =>
@@ -30,9 +33,62 @@ export function EditorPanel() {
   } = useStore();
   const [saving, setSaving] = React.useState<string | null>(null);
   const autoSaveTimers = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const { bind } = useAppContextMenu();
+  // The live Monaco instance, so the toolbar can drive its built-in commands
+  // (find, format) rather than reimplementing them.
+  const editorRef = React.useRef<any>(null);
 
   const activeTab = editorTabs.find((t) => t.path === activeEditorPath) ?? null;
   const activeContent = activeTab ? (activeTab.content ?? openFileContent) : null;
+
+  // --- The preview pane ------------------------------------------------------
+  const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [previewMode, setPreviewMode] = React.useState<PreviewMode>('outline');
+  // Both the mode AND whether the pane is open follow the file — but only until
+  // the user decides for themselves. Opening a README should show the rendered
+  // README without being asked; having that same automation slam the pane shut
+  // on someone who deliberately opened it would be worse than never opening it.
+  const modePinned = React.useRef(false);
+  const openPinned = React.useRef(false);
+  React.useEffect(() => {
+    if (!activeEditorPath) return;
+    if (!modePinned.current) setPreviewMode(defaultMode(activeEditorPath));
+    // Auto-open only for files whose rendered form is genuinely different from
+    // their source. A .ts file's "preview" would be the same text twice.
+    if (!openPinned.current) setPreviewOpen(hasRenderedForm(activeEditorPath));
+  }, [activeEditorPath]);
+
+  const chooseMode = (m: PreviewMode) => { modePinned.current = true; setPreviewMode(m); };
+  const togglePreview = () => { openPinned.current = true; setPreviewOpen((o) => !o); };
+
+  const jumpToLine = React.useCallback((line: number) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.revealLineInCenter?.(line);
+    ed.setPosition?.({ lineNumber: line, column: 1 });
+    ed.focus?.();
+  }, []);
+
+  const runEditorAction = (id: string) => {
+    const ed = editorRef.current;
+    ed?.getAction?.(id)?.run?.();
+    ed?.focus?.();
+  };
+
+  /**
+   * Point the explorer at a folder from a breadcrumb: expand every ancestor
+   * (not just the clicked one — an expanded folder whose parent is collapsed is
+   * still invisible) and bring the tree to the front.
+   */
+  const expandFolderPath = (dir: string) => {
+    const store = useStore.getState();
+    const parts = dir.split('/').filter(Boolean);
+    const ancestors = parts.map((_, i) => parts.slice(0, i + 1).join('/'));
+    const next = new Set([...store.expandedFolders, ...ancestors]);
+    store.setExpandedFolders([...next]);
+    store.setActivePanel('files');
+    store.setLeftHidden(false);
+  };
 
   const saveTab = React.useCallback(async (path: string) => {
     const store = useStore.getState();
@@ -92,6 +148,7 @@ export function EditorPanel() {
   }, [activeEditorPath, setEditorStatus]);
 
   const handleMount = React.useCallback((editor: any) => {
+    editorRef.current = editor;
     const lang = activeEditorPath ? getLanguage(activeEditorPath) : 'plaintext';
     const model = editor.getModel?.();
     const eol: 'LF' | 'CRLF' = model && model.getEOL?.() === '\r\n' ? 'CRLF' : 'LF';
@@ -129,6 +186,13 @@ export function EditorPanel() {
                 active ? 'bg-surface-0 text-text' : 'bg-surface-1 text-text-dim hover:bg-surface-2'
               }`}
               title={t.path}
+              {...bind(() => [
+                { label: 'Close', onSelect: () => closeEditorTab(t.path) },
+                { label: 'Close Others', onSelect: () => editorTabs.filter((o) => o.path !== t.path).forEach((o) => closeEditorTab(o.path)) },
+                { label: 'Close All', onSelect: () => editorTabs.forEach((o) => closeEditorTab(o.path)), separatorAfter: true },
+                { label: 'Copy Path', onSelect: () => navigator.clipboard?.writeText(`${workspacePath}/${t.path}`.replace(/\\/g, '/')) },
+                { label: 'Copy Relative Path', onSelect: () => navigator.clipboard?.writeText(t.path) },
+              ])}
             >
               <span className="shrink-0">{getFileIcon(name)}</span>
               <span className="truncate max-w-[160px]">{name}</span>
@@ -149,10 +213,64 @@ export function EditorPanel() {
         })}
       </div>
 
-      {/* Editor. A single Monaco instance whose `path` follows the active tab —
-          Monaco keeps a separate model (and undo/scroll/cursor view-state) per
-          path, so switching tabs never loses state. */}
-      <div className="flex-1 overflow-hidden">
+      {/* Breadcrumbs + editor actions. The path is the one thing a tab label
+          can't show — "index.ts" is meaningless in a repo with nine of them —
+          and each crumb is clickable so the tree can be pointed at the folder
+          the file actually lives in. */}
+      {activeEditorPath && (
+        <div className="flex items-center gap-1 px-3 h-7 border-b border-border shrink-0 text-[11px] overflow-x-auto">
+          <div className="flex items-center gap-0.5 min-w-0 flex-1">
+            {activeEditorPath.split('/').map((seg, i, all) => {
+              const isLast = i === all.length - 1;
+              const upto = all.slice(0, i + 1).join('/');
+              return (
+                <React.Fragment key={upto}>
+                  {i > 0 && <ChevronRight size={10} className="shrink-0 text-text-dim/50" />}
+                  <button
+                    onClick={() => { if (!isLast) expandFolderPath(upto); }}
+                    className={`shrink-0 truncate px-0.5 rounded ${
+                      isLast ? 'text-text-muted' : 'text-text-dim hover:text-text hover:bg-surface-3'
+                    }`}
+                    title={isLast ? activeEditorPath : `Reveal ${upto} in the explorer`}
+                  >
+                    {seg}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-0.5 shrink-0 pl-2">
+            <button onClick={() => runEditorAction('actions.find')} title="Find (Ctrl+F)" className="p-1 rounded text-text-dim hover:text-text hover:bg-surface-3 transition-colors">
+              <Search size={12} />
+            </button>
+            <button onClick={() => runEditorAction('editor.action.formatDocument')} title="Format document (Shift+Alt+F)" className="p-1 rounded text-text-dim hover:text-text hover:bg-surface-3 transition-colors">
+              <Wrench size={12} />
+            </button>
+            <button
+              onClick={() => void saveTab(activeEditorPath)}
+              disabled={!activeTab?.dirty}
+              title="Save (Ctrl+S)"
+              className="p-1 rounded text-text-dim hover:text-text hover:bg-surface-3 transition-colors disabled:opacity-30"
+            >
+              <Save size={12} />
+            </button>
+            <button
+              onClick={togglePreview}
+              title={previewOpen ? 'Hide the preview pane' : 'Show the preview pane'}
+              className={`p-1 rounded transition-colors ${previewOpen ? 'text-accent-bright bg-surface-3' : 'text-text-dim hover:text-text hover:bg-surface-3'}`}
+            >
+              {previewOpen ? <PanelRightClose size={12} /> : <Columns2 size={12} />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Editor + preview. A single Monaco instance whose `path` follows the
+          active tab — Monaco keeps a separate model (and undo/scroll/cursor
+          view-state) per path, so switching tabs never loses state. */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 min-w-0 overflow-hidden">
         <Suspense fallback={
           <div className="flex items-center justify-center h-full text-text-dim text-sm">Loading editor…</div>
         }>
@@ -184,6 +302,26 @@ export function EditorPanel() {
             <div className="flex items-center justify-center h-full text-text-dim text-sm">Loading {activeEditorPath?.split('/').pop()}…</div>
           )}
         </Suspense>
+      </div>
+
+      {previewOpen && activeEditorPath && (
+        <ResizablePanel
+          defaultWidth={420}
+          minWidth={260}
+          maxWidthPercent={60}
+          storageKey="editor-preview-width"
+          position="left"
+          className="shrink-0 border-l border-border overflow-hidden flex flex-col"
+        >
+          <EditorPreview
+            path={activeEditorPath}
+            content={activeContent ?? ''}
+            mode={previewMode}
+            onModeChange={chooseMode}
+            onJumpToLine={jumpToLine}
+          />
+        </ResizablePanel>
+      )}
       </div>
     </div>
   );

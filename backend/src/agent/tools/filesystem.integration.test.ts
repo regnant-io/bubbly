@@ -26,9 +26,9 @@ describe('Filesystem Tools Integration', () => {
 
   describe('.bubbly redirect (external project data)', () => {
     it('writes .bubbly/* OUTSIDE the workspace, and reads it back at the same virtual path', async () => {
-      await writeFile(workspacePath, '.bubbly/specs/s1/requirements.md', '# Reqs');
+      await writeFile(workspacePath, '.bubbly/checkpoints/c1/note.md', '# Reqs');
       // The virtual path round-trips for the agent…
-      expect(await readFile(workspacePath, '.bubbly/specs/s1/requirements.md')).toBe('# Reqs');
+      expect(await readFile(workspacePath, '.bubbly/checkpoints/c1/note.md')).toBe('# Reqs');
       // …but nothing landed inside the project, so a clean-slate scaffold is safe.
       expect(fs.existsSync(path.join(workspacePath, '.bubbly'))).toBe(false);
       // Only the file the test created is in the workspace (no .bubbly).

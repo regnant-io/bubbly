@@ -1,8 +1,22 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useStore } from '../../store';
-import { fetchDirectory, fetchFileContent, type DirEntry } from '../../hooks/useApi';
-import { Folder, RefreshCw, ChevronRight, ChevronDown, Search, X, Loader2 } from '../Shared/icons';
+import {
+  fetchDirectory, fetchFileContent, type DirEntry,
+  createEntryApi, renameEntryApi, duplicateEntryApi, trashEntryApi, revealEntryApi,
+} from '../../hooks/useApi';
+import {
+  Folder, RefreshCw, ChevronRight, ChevronDown, Search, X, Loader2,
+  FilePlus, FolderPlus, Pencil, Copy, Trash2, ExternalLink, File as FileIcon,
+  ChevronsDownUp,
+} from '../Shared/icons';
+import { useAppContextMenu } from '../Shared/ContextMenu';
+import { PanelHeader, PanelHeaderButton } from '../Shared/PanelHeader';
 import { getFileIcon, getFolderIcon } from './fileIcons';
+
+/** An in-progress create or rename, edited inline in the tree. */
+type PendingEdit =
+  | { kind: 'create'; type: 'file' | 'directory'; parent: string; value: string }
+  | { kind: 'rename'; path: string; value: string };
 
 /**
  * Lazy, recursive IDE file tree.
@@ -23,7 +37,7 @@ const ROW_HEIGHT = 22;
 const OVERSCAN = 10;
 
 export function FileExplorer() {
-  const { workspacePath, setOpenFile, activeEditorPath, editorTabs, expandedFolders, toggleFolderExpansion, setExpandedFolders } = useStore();
+  const { workspacePath, setOpenFile, activeEditorPath, editorTabs, expandedFolders, toggleFolderExpansion, setExpandedFolders, closeEditorTab } = useStore();
   const openTabPaths = new Set(editorTabs.map((t) => t.path));
 
   // Cache of directory path → its children (entries). Root is keyed by ''.
@@ -106,6 +120,137 @@ export function FileExplorer() {
 
   const handleCollapseAll = () => setExpandedFolders([]);
 
+  // --- File CRUD -------------------------------------------------------------
+
+  const { bind } = useAppContextMenu();
+  const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
+  const [opError, setOpError] = useState<string | null>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (pendingEdit) {
+      editInputRef.current?.focus();
+      // Preselect the basename on rename, not the extension — renaming
+      // "Button.tsx" almost always means changing "Button".
+      const el = editInputRef.current;
+      if (el && pendingEdit.kind === 'rename') {
+        const dot = pendingEdit.value.lastIndexOf('.');
+        el.setSelectionRange(0, dot > 0 ? dot : pendingEdit.value.length);
+      }
+    }
+  }, [pendingEdit?.kind, pendingEdit?.kind === 'rename' ? pendingEdit.path : (pendingEdit as any)?.parent]);
+
+  /** Reload just the folder an operation touched, so the tree stays put. */
+  const refreshDir = (dirPath: string) => loadDir(dirPath);
+
+  const parentOf = (p: string) => {
+    const i = p.replace(/\\/g, '/').lastIndexOf('/');
+    return i === -1 ? '' : p.slice(0, i);
+  };
+
+  const startCreate = (parent: string, type: 'file' | 'directory') => {
+    setOpError(null);
+    // Creating inside a collapsed folder would hide the result — open it first.
+    if (parent && !expandedSet.has(parent)) {
+      toggleFolderExpansion(parent);
+      if (children[parent] === undefined) loadDir(parent);
+    }
+    setPendingEdit({ kind: 'create', type, parent, value: '' });
+  };
+
+  const commitEdit = async () => {
+    if (!pendingEdit || !workspacePath) return;
+    const name = pendingEdit.value.trim();
+    if (!name) { setPendingEdit(null); return; }
+    setOpError(null);
+    try {
+      if (pendingEdit.kind === 'create') {
+        const r = await createEntryApi(workspacePath, pendingEdit.parent, name, pendingEdit.type);
+        await refreshDir(pendingEdit.parent);
+        setPendingEdit(null);
+        // Open a new file immediately — creating one is almost always the first
+        // half of "and now let me write in it".
+        if (pendingEdit.type === 'file' && r.path) setOpenFile(r.path, '');
+      } else {
+        const dir = parentOf(pendingEdit.path);
+        const wasOpen = editorTabs.some((t) => t.path === pendingEdit.path);
+        const r = await renameEntryApi(workspacePath, pendingEdit.path, name);
+        await refreshDir(dir);
+        setPendingEdit(null);
+        // An open tab pointing at the old name is now pointing at nothing.
+        if (wasOpen && r.path) {
+          closeEditorTab(pendingEdit.path);
+          try {
+            const data = await fetchFileContent(workspacePath, r.path);
+            setOpenFile(r.path, data.content);
+          } catch { /* the file may be a directory or binary */ }
+        }
+      }
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDuplicate = async (entry: DirEntry) => {
+    if (!workspacePath) return;
+    setOpError(null);
+    try {
+      await duplicateEntryApi(workspacePath, entry.path);
+      await refreshDir(parentOf(entry.path));
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleTrash = async (entry: DirEntry) => {
+    if (!workspacePath) return;
+    const what = entry.type === 'directory' ? 'folder' : 'file';
+    // Named explicitly, and honest about where it goes: the confirm is the only
+    // thing standing between a stray click and a deleted directory.
+    if (!window.confirm(
+      `Move the ${what} "${entry.name}" to the Recycle Bin?\n\n${entry.path}` +
+      (entry.type === 'directory' ? '\n\nEverything inside it goes too.' : ''),
+    )) return;
+    setOpError(null);
+    try {
+      await trashEntryApi(workspacePath, entry.path);
+      if (entry.type !== 'directory') closeEditorTab(entry.path);
+      await refreshDir(parentOf(entry.path));
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const copyToClipboard = (text: string) => { navigator.clipboard?.writeText(text); };
+
+  /** The right-click menu for one entry. Items vary by file vs folder. */
+  const menuItemsFor = (entry: DirEntry) => {
+    const isDir = entry.type === 'directory';
+    const containingDir = isDir ? entry.path : parentOf(entry.path);
+    return [
+      ...(isDir ? [
+        { label: 'New File', icon: <FilePlus size={13} />, onSelect: () => startCreate(entry.path, 'file') },
+        { label: 'New Folder', icon: <FolderPlus size={13} />, onSelect: () => startCreate(entry.path, 'directory'), separatorAfter: true },
+      ] : [
+        { label: 'New File', icon: <FilePlus size={13} />, onSelect: () => startCreate(containingDir, 'file') },
+        { label: 'New Folder', icon: <FolderPlus size={13} />, onSelect: () => startCreate(containingDir, 'directory'), separatorAfter: true },
+      ]),
+      { label: 'Rename…', icon: <Pencil size={13} />, hint: 'F2', onSelect: () => { setOpError(null); setPendingEdit({ kind: 'rename', path: entry.path, value: entry.name }); } },
+      { label: 'Duplicate', icon: <Copy size={13} />, onSelect: () => handleDuplicate(entry), separatorAfter: true },
+      { label: 'Copy Path', icon: <Copy size={13} />, onSelect: () => copyToClipboard(`${workspacePath}/${entry.path}`.replace(/\\/g, '/')) },
+      { label: 'Copy Relative Path', icon: <Copy size={13} />, onSelect: () => copyToClipboard(entry.path) },
+      { label: 'Reveal in File Explorer', icon: <ExternalLink size={13} />, onSelect: () => { void revealEntryApi(workspacePath, entry.path).catch(() => setOpError('Could not open the file manager.')); }, separatorAfter: true },
+      { label: 'Delete', icon: <Trash2 size={13} />, danger: true, hint: 'to Recycle Bin', onSelect: () => handleTrash(entry) },
+    ];
+  };
+
+  /** Right-clicking empty space acts on the workspace root. */
+  const rootMenuItems = () => [
+    { label: 'New File', icon: <FilePlus size={13} />, onSelect: () => startCreate('', 'file') },
+    { label: 'New Folder', icon: <FolderPlus size={13} />, onSelect: () => startCreate('', 'directory'), separatorAfter: true },
+    { label: 'Refresh', icon: <RefreshCw size={13} />, onSelect: handleRefresh },
+  ];
+
   // Flatten the tree into the visible, ordered list (respecting expansion).
   // This recursion walks only loaded + expanded folders, so it's cheap.
   const flatten = useCallback((): TreeNode[] => {
@@ -151,20 +296,59 @@ export function FileExplorer() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
-        <span className="text-xs font-semibold text-text truncate uppercase tracking-wide" title={workspacePath}>
-          {workspacePath.split(/[\\/]/).filter(Boolean).pop() ?? 'Explorer'}
-          {total > 0 ? <span className="text-text-dim normal-case font-normal tracking-normal"> · {total}</span> : null}
-        </span>
-        <div className="flex items-center gap-1">
-          <button onClick={handleCollapseAll} className="px-1.5 py-0.5 text-[10px] rounded hover:bg-surface-3 text-text-dim hover:text-text transition-colors" title="Collapse all">
-            Collapse
-          </button>
-          <button onClick={handleRefresh} className="p-1 rounded hover:bg-surface-3 text-text-dim hover:text-text transition-colors" title="Refresh">
-            <RefreshCw size={12} className={rootLoading ? 'animate-spin' : ''} />
-          </button>
+      <PanelHeader
+        title={workspacePath.split(/[\\/]/).filter(Boolean).pop() ?? 'Explorer'}
+        count={total > 0 ? total : undefined}
+        actions={
+          <>
+            <PanelHeaderButton icon={<FilePlus size={13} />} label="New file in the project root" onClick={() => startCreate('', 'file')} />
+            <PanelHeaderButton icon={<FolderPlus size={13} />} label="New folder in the project root" onClick={() => startCreate('', 'directory')} />
+            <PanelHeaderButton icon={<ChevronsDownUp size={13} />} label="Collapse all folders" onClick={handleCollapseAll} />
+            <PanelHeaderButton icon={<RefreshCw size={13} className={rootLoading ? 'animate-spin' : ''} />} label="Refresh" onClick={handleRefresh} />
+          </>
+        }
+      />
+
+      {/* Inline name editor for a create or rename.
+          It sits under the header rather than inside the tree because the tree
+          is virtualized — splicing a phantom row into a windowed list means the
+          input can be scrolled out from under the cursor mid-type. Here it
+          stays put, and says exactly what it will do and where. */}
+      {pendingEdit && (
+        <div className="px-2 py-1.5 border-b border-border shrink-0 bg-surface-2/60">
+          <div className="text-[10px] text-text-dim mb-1 truncate">
+            {pendingEdit.kind === 'create'
+              ? `New ${pendingEdit.type === 'directory' ? 'folder' : 'file'} in ${pendingEdit.parent || 'the project root'}`
+              : `Rename ${pendingEdit.path}`}
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-1 border border-accent/60">
+            {pendingEdit.kind === 'create' && pendingEdit.type === 'directory'
+              ? <Folder size={12} className="text-text-dim shrink-0" />
+              : <FileIcon size={12} className="text-text-dim shrink-0" />}
+            <input
+              ref={editInputRef}
+              value={pendingEdit.value}
+              onChange={(e) => setPendingEdit({ ...pendingEdit, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); void commitEdit(); }
+                else if (e.key === 'Escape') { e.preventDefault(); setPendingEdit(null); setOpError(null); }
+              }}
+              placeholder={pendingEdit.kind === 'create' ? (pendingEdit.type === 'directory' ? 'folder name' : 'file name') : 'new name'}
+              className="flex-1 bg-transparent text-xs text-text placeholder-text-dim focus:outline-none min-w-0"
+            />
+            <button onClick={() => { setPendingEdit(null); setOpError(null); }} className="p-0.5 rounded hover:bg-surface-3 text-text-dim hover:text-text" title="Cancel (Esc)">
+              <X size={11} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {opError && (
+        <div className="shrink-0 flex items-start gap-1.5 px-3 py-1.5 bg-error-bg border-b border-red-agent/30 text-[11px] text-red-agent">
+          <span className="flex-1">{opError}</span>
+          <button onClick={() => setOpError(null)} className="shrink-0 hover:underline">dismiss</button>
+        </div>
+      )}
 
       <div className="px-2 py-1.5 border-b border-border shrink-0">
         <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-2 border border-border focus-within:border-accent/60 transition-colors">
@@ -183,7 +367,12 @@ export function FileExplorer() {
         </div>
       </div>
 
-      <div ref={scrollRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)} className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        className="flex-1 overflow-y-auto"
+        {...bind(rootMenuItems)}
+      >
         {rootLoading && total === 0 ? (
           <div className="px-3 py-4 text-xs text-text-dim animate-pulse">Loading…</div>
         ) : total === 0 ? (
@@ -202,11 +391,19 @@ export function FileExplorer() {
                   <button
                     key={`${entry.path}-${startIdx + i}`}
                     onClick={() => (isDir ? handleToggleFolder(entry) : handleOpenFile(entry))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'F2') {
+                        e.preventDefault();
+                        setOpError(null);
+                        setPendingEdit({ kind: 'rename', path: entry.path, value: entry.name });
+                      }
+                    }}
                     className={`group relative w-full flex items-center gap-1 pr-2 text-xs hover:bg-surface-3 transition-colors text-left ${
                       isActive ? 'bg-accent/10 text-accent-bright' : isOpen ? 'text-text' : 'text-text-muted'
                     }`}
                     style={{ height: ROW_HEIGHT }}
                     title={entry.path}
+                    {...bind(() => menuItemsFor(entry))}
                   >
                     {/* Active-file accent bar (absolute so it doesn't shift content). */}
                     {isActive && <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent-bright" />}

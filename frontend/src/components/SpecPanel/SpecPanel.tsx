@@ -1,192 +1,229 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import { useStore } from '../../store';
 import { useScrollRestoration } from '../../hooks/useScrollRestoration';
-import { fetchSpecs } from '../../hooks/useApi';
-import type { Spec } from '../../types';
-import { ClipboardList, CheckCircle, Clock, RefreshCw, Plus } from '../Shared/icons';
+import { fetchSpecs, fetchFileContent } from '../../hooks/useApi';
+import type { Spec, SpecTask } from '../../types';
+import { ClipboardList, RefreshCw, FileText, ChevronRight } from '../Shared/icons';
 import { MarkdownContent } from '../Shared/MarkdownContent';
 
-function statusColor(status: Spec['status']): string {
-  switch (status) {
-    case 'done': return 'text-green-agent bg-success-bg border-green-agent/40';
-    case 'in_progress': return 'text-blue-agent bg-info-bg border-blue-agent/40';
-    case 'cancelled': return 'text-text-dim bg-surface-3 border-border';
-    default: return 'text-amber-agent bg-warning-bg border-amber-agent/40';
-  }
+/**
+ * The Specs panel.
+ *
+ * A spec is three markdown files on disk — requirements.md, design.md,
+ * tasks.md — so this panel's job is to render THOSE, not a database projection
+ * of them. It reads the actual files, which means what you see here is exactly
+ * what the agent reads and exactly what `git diff` will show. There is nothing
+ * to get out of sync.
+ *
+ * Task state is the checkbox character in tasks.md: `- [ ]`, `- [~]`, `- [x]`.
+ * The list below renders those three states directly rather than inventing its
+ * own vocabulary, so the panel and the file always agree — and a user who edits
+ * a checkbox by hand in the editor sees the change here on the next refresh.
+ */
+
+type DocTab = 'requirements' | 'design' | 'tasks';
+
+const DOC_FILES: Record<DocTab, string> = {
+  requirements: 'requirements.md',
+  design: 'design.md',
+  tasks: 'tasks.md',
+};
+
+/** The marker as it appears in tasks.md, which is the whole point. */
+function markerFor(status: SpecTask['status']): string {
+  return status === 'done' ? 'x' : status === 'in_progress' ? '~' : ' ';
 }
 
-function typeColor(type: Spec['type']): string {
-  switch (type) {
-    case 'feature': return 'text-accent-bright';
-    case 'bugfix': return 'text-red-agent';
-    case 'refactor': return 'text-amber-agent';
-    case 'research': return 'text-blue-agent';
-  }
-}
-
-function SpecCard({ spec }: { spec: Spec }) {
-  const [expanded, setExpanded] = React.useState(false);
-  const [showDesign, setShowDesign] = React.useState(false);
-  const doneTasks = (spec.tasks ?? []).filter((t) => t.status === 'done').length;
-  const totalTasks = (spec.tasks ?? []).length;
-  const properties = spec.properties ?? [];
-  const requirements = spec.requirements ?? [];
-  const phase = spec.phase ?? 'ready';
+function TaskRow({ task, depth = 0 }: { task: SpecTask | { id: string; title: string; status: SpecTask['status']; acceptance?: string }; depth?: number }) {
+  const t = task as SpecTask;
+  const done = t.status === 'done';
+  const active = t.status === 'in_progress';
 
   return (
-    <div className="border border-border rounded-xl p-3 mb-2 bg-surface-2 hover:border-border-bright transition-colors">
-      <div
-        className="flex items-start justify-between gap-2 mb-2 cursor-pointer"
-        onClick={() => setExpanded((e) => !e)}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className={`text-xs font-medium ${typeColor(spec.type)}`}>{spec.type}</span>
-            <span className={`tag text-xs border ${statusColor(spec.status)}`}>{spec.status}</span>
-            {phase !== 'ready' && (
-              <span className="tag text-xs bg-accent/15 text-accent-bright border border-accent/30">
-                phase: {phase}
-              </span>
-            )}
-            {properties.length > 0 && (
-              <span className="tag text-xs bg-surface-3 text-text-dim border border-border">
-                {properties.length} props
-              </span>
-            )}
-          </div>
-          <h4 className="text-sm font-medium text-text truncate">{spec.title}</h4>
-        </div>
-        <span className="text-text-dim text-xs mt-1 shrink-0">{expanded ? '▼' : '▶'}</span>
-      </div>
-
-      {/* Staged-workflow phase tracker */}
-      {phase !== 'ready' && (
-        <div className="flex items-center gap-1 mb-2 text-[10px]">
-          {(['requirements', 'design', 'tasks'] as const).map((p, i) => {
-            const order = ['requirements', 'design', 'tasks', 'ready'];
-            const reached = order.indexOf(phase) > order.indexOf(p);
-            const current = phase === p;
-            const approved = spec.approvals?.[p];
-            return (
-              <React.Fragment key={p}>
-                {i > 0 && <span className="text-text-dim">→</span>}
-                <span className={`px-1.5 py-0.5 rounded ${
-                  approved || reached ? 'bg-green-agent/15 text-green-agent' :
-                  current ? 'bg-accent/15 text-accent-bright' : 'bg-surface-3 text-text-dim'
-                }`}>
-                  {approved || reached ? '✓ ' : ''}{p}
-                </span>
-              </React.Fragment>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Acceptance properties (EARS) */}
-      {properties.length > 0 && (
-        <ul className="text-xs text-text-muted space-y-0.5 mb-2">
-          {(expanded ? properties : properties.slice(0, 3)).map((p) => (
-            <li key={p.id} className="flex items-start gap-1.5">
-              <span className="text-accent-bright mt-0.5 shrink-0 font-mono">{p.id}</span>
-              <span className={expanded ? '' : 'truncate'}>{p.statement}</span>
-            </li>
-          ))}
-          {!expanded && properties.length > 3 && (
-            <li className="text-text-dim">+{properties.length - 3} more…</li>
-          )}
-        </ul>
-      )}
-
-      {/* Design document (collapsible) */}
-      {expanded && spec.design && spec.design.trim().length > 0 && (
-        <div className="mb-2 border-t border-border pt-2">
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowDesign((s) => !s); }}
-            className="text-xs text-accent-bright hover:underline"
+    <div style={{ paddingLeft: depth * 14 }} className="py-1">
+      <div className="flex items-start gap-2">
+        <span
+          className={`font-mono text-[11px] leading-5 shrink-0 select-none ${
+            done ? 'text-green-agent' : active ? 'text-accent-bright' : 'text-text-dim'
+          }`}
+          title={done ? 'done' : active ? 'in progress' : 'not started'}
+        >
+          [{markerFor(t.status)}]
+        </span>
+        <div className="min-w-0 flex-1">
+          <span
+            className={`text-xs ${
+              done ? 'text-text-dim line-through decoration-text-dim/40'
+              : active ? 'text-text font-medium'
+              : 'text-text'
+            }`}
           >
-            {showDesign ? '▼' : '▶'} Design document
-          </button>
-          {showDesign && (
-            // design.md is real markdown — render it, don't dump it as raw text.
-            <div className="mt-1.5 max-h-80 overflow-y-auto bg-surface-1 rounded-lg p-3 border border-border">
-              <MarkdownContent content={spec.design} className="text-xs" />
+            {t.title}
+          </span>
+          {active && (
+            <span className="ml-2 align-middle inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse-slow" />
+          )}
+
+          {/* The task's own contract, straight from the file. */}
+          {t.targetFiles && t.targetFiles.length > 0 && (
+            <div className="text-[11px] text-text-dim font-mono truncate mt-0.5">{t.targetFiles.join(', ')}</div>
+          )}
+          {t.acceptance && (
+            <div className="text-[11px] text-text-muted mt-0.5">
+              <span className="text-text-dim">done when </span>{t.acceptance}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Fallback to plain requirements if no structured properties */}
-      {properties.length === 0 && requirements.length > 0 && (
-        <ul className="text-xs text-text-muted space-y-0.5 mb-2">
-          {requirements.slice(0, expanded ? undefined : 3).map((r, i) => (
-            <li key={i} className="flex items-start gap-1.5">
-              <span className="text-text-dim mt-0.5 shrink-0">•</span>
-              <span className={expanded ? '' : 'truncate'}>{r}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {totalTasks > 0 && (
-        <div className="flex items-center gap-2">
-          <div className="flex-1 h-1 bg-surface-3 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-accent rounded-full transition-all"
-              style={{ width: `${(doneTasks / totalTasks) * 100}%` }}
-            />
-          </div>
-          <span className="text-xs text-text-dim whitespace-nowrap">
-            {doneTasks}/{totalTasks} tasks
-          </span>
-        </div>
-      )}
-
-      {/* Expanded task detail with target files + dependencies */}
-      {expanded && totalTasks > 0 && (
-        <div className="mt-3 space-y-1.5 border-t border-border pt-2">
-          {(spec.tasks ?? []).map((t) => (
-            <div key={t.id} className="text-xs">
-              <div className="flex items-center gap-1.5">
-                {/* Mirrors the tasks.md marker: [ ] / [~] / [x] */}
-                <span className={
-                  t.status === 'done' ? 'text-green-agent' :
-                  t.status === 'in_progress' ? 'text-blue-agent' : 'text-text-dim'
-                }>
-                  {t.status === 'done' ? '✓' : t.status === 'in_progress' ? '◐' : '○'}
-                </span>
-                <span className={
-                  t.status === 'done' ? 'text-text-dim line-through decoration-text-dim/50' :
-                  t.status === 'in_progress' ? 'text-text font-medium' : 'text-text'
-                }>
-                  {t.title}
-                </span>
-              </div>
-              {t.targetFiles && t.targetFiles.length > 0 && (
-                <div className="ml-5 text-text-dim font-mono truncate">→ {t.targetFiles.join(', ')}</div>
-              )}
-              {t.acceptance && (
-                <div className="ml-5 text-text-dim italic truncate">done when: {t.acceptance}</div>
-              )}
-              {t.subTasks && t.subTasks.length > 0 && (
-                <div className="ml-5 mt-0.5 space-y-0.5">
-                  {t.subTasks.map((st) => (
-                    <div key={st.id} className="flex items-center gap-1.5 text-text-dim">
-                      <span className={st.status === 'done' ? 'text-green-agent' : st.status === 'in_progress' ? 'text-blue-agent' : ''}>
-                        {st.status === 'done' ? '✓' : st.status === 'in_progress' ? '◐' : '○'}
-                      </span>
-                      <span>{st.title}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {t.verifyWith && (
+            <div className="text-[11px] text-text-muted mt-0.5">
+              <span className="text-text-dim">verify </span>
+              <code className="font-mono text-[10px] bg-surface-3 rounded px-1 py-0.5">{t.verifyWith}</code>
             </div>
-          ))}
+          )}
+          {t.dependsOn && t.dependsOn.length > 0 && (
+            <div className="text-[11px] text-text-dim mt-0.5">after {t.dependsOn.join(', ')}</div>
+          )}
+        </div>
+      </div>
+
+      {t.subTasks?.map((st) => <TaskRow key={st.id} task={st} depth={depth + 1} />)}
+    </div>
+  );
+}
+
+function ProgressBar({ done, total }: { done: number; total: number }) {
+  if (total === 0) return null;
+  const pct = Math.round((done / total) * 100);
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1 bg-surface-3 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${done === total ? 'bg-green-agent' : 'bg-accent'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-[11px] text-text-dim tabular-nums whitespace-nowrap">{done}/{total}</span>
+    </div>
+  );
+}
+
+function phaseLabel(spec: Spec): string {
+  switch (spec.phase) {
+    case 'requirements': return 'writing requirements';
+    case 'design': return 'writing design';
+    case 'tasks': return 'writing tasks';
+    default: return spec.status === 'done' ? 'complete' : 'in progress';
+  }
+}
+
+function SpecCard({ spec, workspacePath }: { spec: Spec; workspacePath: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [tab, setTab] = useState<DocTab>('tasks');
+  const [doc, setDoc] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const tasks = spec.tasks ?? [];
+  const done = tasks.filter((t) => t.status === 'done').length;
+
+  // Which documents actually exist, so we never offer an empty tab.
+  const available = useMemo<DocTab[]>(() => {
+    const list: DocTab[] = [];
+    if ((spec.requirements ?? []).length > 0) list.push('requirements');
+    if (spec.design && spec.design.trim()) list.push('design');
+    if (tasks.length > 0) list.push('tasks');
+    return list;
+  }, [spec.requirements, spec.design, tasks.length]);
+
+  useEffect(() => {
+    if (available.length > 0 && !available.includes(tab)) setTab(available[available.length - 1]);
+  }, [available, tab]);
+
+  // Read the real file for prose documents. Tasks are rendered from the parsed
+  // structure instead — the checkbox list is more useful as a live list than as
+  // a wall of markdown, and it is derived from the same file either way.
+  useEffect(() => {
+    if (!expanded || tab === 'tasks') { setDoc(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    fetchFileContent(workspacePath, `.bubbly/specs/${spec.id}/${DOC_FILES[tab]}`)
+      .then((r) => { if (!cancelled) setDoc(typeof r?.content === 'string' ? r.content : null); })
+      .catch(() => { if (!cancelled) setDoc(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [expanded, tab, spec.id, spec.updatedAt, workspacePath]);
+
+  return (
+    <div className="border border-border rounded-xl mb-2 bg-surface-2 overflow-hidden hover:border-border-bright transition-colors">
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full text-left p-3"
+        aria-expanded={expanded}
+      >
+        <div className="flex items-start gap-2">
+          <ChevronRight
+            size={12}
+            className={`mt-1 shrink-0 text-text-dim transition-transform ${expanded ? 'rotate-90' : ''}`}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <h4 className="text-sm font-medium text-text truncate">{spec.title}</h4>
+              <span className={`tag text-[10px] border ${
+                spec.status === 'done' ? 'text-green-agent bg-success-bg border-green-agent/40'
+                : spec.status === 'in_progress' ? 'text-blue-agent bg-info-bg border-blue-agent/40'
+                : 'text-amber-agent bg-warning-bg border-amber-agent/40'
+              }`}>
+                {phaseLabel(spec)}
+              </span>
+            </div>
+            {/* The path is the point: these are real files you can open. */}
+            <div className="text-[10px] text-text-dim font-mono truncate mb-1.5">
+              .bubbly/specs/{spec.id}/
+            </div>
+            <ProgressBar done={done} total={tasks.length} />
+          </div>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border">
+          {available.length > 1 && (
+            <div className="flex items-center gap-1 px-3 pt-2">
+              {available.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`px-2 py-1 rounded-md text-[11px] transition-colors ${
+                    tab === t ? 'bg-accent/15 text-accent-bright' : 'text-text-dim hover:text-text hover:bg-surface-3'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+              <span className="flex-1" />
+              <span className="text-[10px] text-text-dim font-mono">{DOC_FILES[tab]}</span>
+            </div>
+          )}
+
+          <div className="p-3 max-h-[28rem] overflow-y-auto">
+            {tab === 'tasks' ? (
+              tasks.length === 0
+                ? <p className="text-xs text-text-dim">No tasks written yet.</p>
+                : (
+                  <div className="divide-y divide-border/50">
+                    {tasks.map((t) => <TaskRow key={t.id} task={t} />)}
+                  </div>
+                )
+            ) : loading ? (
+              <p className="text-xs text-text-dim">Reading {DOC_FILES[tab]}…</p>
+            ) : doc ? (
+              <MarkdownContent content={doc} className="text-xs" />
+            ) : (
+              <p className="text-xs text-text-dim">
+                {DOC_FILES[tab]} could not be read. It may not have been written yet.
+              </p>
+            )}
+          </div>
         </div>
       )}
-
-      <div className="mt-2 text-xs text-text-dim">
-        {new Date(spec.createdAt).toLocaleDateString()}
-      </div>
     </div>
   );
 }
@@ -194,20 +231,22 @@ function SpecCard({ spec }: { spec: Spec }) {
 export function SpecPanel() {
   const { workspacePath, specs, setSpecs } = useStore();
   const { scrollRef } = useScrollRestoration('spec-panel', true);
+  const [loading, setLoading] = useState(false);
 
   const loadSpecs = useCallback(async () => {
     if (!workspacePath) return;
+    setLoading(true);
     try {
       const data = await fetchSpecs(workspacePath);
       if (Array.isArray(data)) setSpecs(data);
     } catch (e) {
       console.error(e);
+    } finally {
+      setLoading(false);
     }
   }, [workspacePath, setSpecs]);
 
-  useEffect(() => {
-    loadSpecs();
-  }, [loadSpecs]);
+  useEffect(() => { loadSpecs(); }, [loadSpecs]);
 
   return (
     <div className="flex flex-col h-full">
@@ -222,9 +261,9 @@ export function SpecPanel() {
         <button
           onClick={loadSpecs}
           className="p-1 rounded hover:bg-surface-3 text-text-dim hover:text-text transition-colors"
-          title="Refresh specs"
+          title="Re-read the spec files from disk"
         >
-          <RefreshCw size={12} />
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
@@ -236,14 +275,16 @@ export function SpecPanel() {
           </div>
         ) : specs.length === 0 ? (
           <div className="text-center py-8 text-text-dim text-sm">
-            <ClipboardList size={24} className="mx-auto mb-2 opacity-30" />
+            <FileText size={24} className="mx-auto mb-2 opacity-30" />
             <p>No specs yet</p>
             <p className="text-xs mt-1 text-text-dim">
-              Ask the agent to create a spec for your feature
+              Start a Spec Session and the agent will write
+              <br />
+              <code className="font-mono text-[10px]">.bubbly/specs/&lt;name&gt;/</code>
             </p>
           </div>
         ) : (
-          specs.map((spec) => <SpecCard key={spec.id} spec={spec} />)
+          specs.map((spec) => <SpecCard key={spec.id} spec={spec} workspacePath={workspacePath} />)
         )}
       </div>
     </div>

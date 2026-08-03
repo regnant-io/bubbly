@@ -19,9 +19,14 @@
  * prefix keeps the directory human-recognizable when browsing ~/.bubbly.
  *
  * Existing projects are migrated transparently: the first time a project's data
- * dir is requested, if the old in-project `.bubbly/` exists and the new external
- * one does not, the old one is MOVED out. That both preserves prior specs/
- * checkpoints AND retroactively unblocks the clean-slate tools for old projects.
+ * dir is requested, anything left in the old in-project `.bubbly/` is MOVED out.
+ * That both preserves prior state AND retroactively unblocks the clean-slate
+ * tools for old projects.
+ *
+ * ONE EXCEPTION: `.bubbly/specs/` stays in the project. Specs are documents
+ * about the code rather than machine state, so they are meant to be browsed,
+ * diffed and committed alongside it — see specs.ts. The migration below skips
+ * that entry deliberately.
  */
 
 import fs from 'fs';
@@ -55,11 +60,24 @@ function slugFor(workspacePath: string): string {
 const migrated = new Set<string>();
 
 /**
- * Move a legacy in-project `.bubbly/` to the external location, once.
+ * Entries of an in-project `.bubbly/` that BELONG there and must never be moved
+ * out. Currently just specs: they are documents about the code, written to be
+ * read and reviewed by a human, so they live with the code (see specs.ts).
+ */
+const IN_PROJECT_ENTRIES = new Set(['specs']);
+
+/**
+ * Move legacy in-project `.bubbly/` state to the external location, once.
+ *
+ * This migrates ENTRY BY ENTRY rather than moving the whole directory, and skips
+ * anything in IN_PROJECT_ENTRIES. The wholesale move was correct when nothing at
+ * all was allowed inside the project; now that specs live there it would drag
+ * them out again on every fresh process whose external dir didn't exist yet, and
+ * the specs module would immediately move them back — a tug of war over the
+ * user's documents, with a window in which they are in neither place.
  *
  * rename() is atomic and cheap on the same volume; across volumes (home on C:,
  * project on D:) it throws EXDEV, so we fall back to a recursive copy + delete.
- * Either way the project folder ends up clean.
  */
 function migrateIfNeeded(workspacePath: string, dataDir: string): void {
   if (migrated.has(dataDir)) return;
@@ -68,21 +86,43 @@ function migrateIfNeeded(workspacePath: string, dataDir: string): void {
   const legacy = legacyProjectDir(workspacePath);
   try {
     if (!fs.existsSync(legacy)) return;          // nothing to migrate
-    if (fs.existsSync(dataDir)) return;          // already have external state; leave legacy alone rather than risk clobbering
     if (!fs.statSync(legacy).isDirectory()) return;
 
-    fs.mkdirSync(path.dirname(dataDir), { recursive: true });
-    try {
-      fs.renameSync(legacy, dataDir);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-        copyDirSync(legacy, dataDir);
-        fs.rmSync(legacy, { recursive: true, force: true });
-      } else {
-        throw err;
+    const entries = fs.readdirSync(legacy, { withFileTypes: true })
+      .filter((e) => !IN_PROJECT_ENTRIES.has(e.name));
+    if (entries.length === 0) return;
+
+    fs.mkdirSync(dataDir, { recursive: true });
+
+    let moved = 0;
+    for (const entry of entries) {
+      const from = path.join(legacy, entry.name);
+      const to = path.join(dataDir, entry.name);
+      // External state already exists for this entry — leave the legacy copy
+      // alone rather than risk clobbering newer state with older.
+      if (fs.existsSync(to)) continue;
+      try {
+        fs.renameSync(from, to);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+          if (entry.isDirectory()) copyDirSync(from, to);
+          else fs.copyFileSync(from, to);
+          fs.rmSync(from, { recursive: true, force: true });
+        } else {
+          throw err;
+        }
       }
+      moved++;
     }
-    logger.info('Migrated project state out of the workspace', { workspacePath, from: legacy, to: dataDir });
+
+    // Remove `.bubbly/` only if nothing legitimate is left in it.
+    try {
+      if (fs.readdirSync(legacy).length === 0) fs.rmdirSync(legacy);
+    } catch { /* a non-empty dir simply stays */ }
+
+    if (moved > 0) {
+      logger.info('Migrated project state out of the workspace', { workspacePath, from: legacy, to: dataDir, moved });
+    }
   } catch (err) {
     // Migration is best-effort. If it fails the caller still gets a usable
     // (fresh) external dir; the legacy one simply lingers until next time.

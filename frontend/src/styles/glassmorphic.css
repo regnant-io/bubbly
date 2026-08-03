@@ -142,7 +142,7 @@ html.dark .floating-glass:hover {
   position: relative;
   padding: 0.625rem 1.25rem;
   border-radius: 0.75rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.025em;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -198,7 +198,7 @@ html.dark .btn-glass:hover {
   border: 1px solid transparent;
   border-radius: 0.75rem;
   padding: 0.75rem 1rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text);
   width: 100%;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -226,7 +226,7 @@ html.dark .btn-glass:hover {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.75rem;
   padding: 0.75rem 1rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text);
   width: 100%;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);

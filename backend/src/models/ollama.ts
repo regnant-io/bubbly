@@ -1,5 +1,6 @@
 import type { ModelResponse, ToolDefinition, Message } from '../types';
 import { logger } from '../utils/logger';
+import { ToolCallLeakFilter, looksLikeBareToolCall, parseLeakedToolCall } from './toolCallLeak';
 
 interface OllamaMessage {
   role: string;
@@ -699,6 +700,22 @@ export async function callOllama(params: {
     // Holds a trailing partial control sigil (e.g. a lone "<|chan") across
     // content chunks so we can strip it once it completes on the next chunk.
     let sigilPending = '';
+    // Rescues tool calls the model wrote into the ANSWER instead of the tool
+    // channel. Runs BEFORE the sigil stripper, which would otherwise delete the
+    // <tool_call> markers and leave their JSON payload to stream out as prose
+    // while the call itself never executed. See toolCallLeak.ts.
+    const leakFilter = new ToolCallLeakFilter();
+    /** Turn a rescued text tool call into a real one, exactly like a native one. */
+    const adoptLeakedCalls = () => {
+      for (const call of leakFilter.recovered.splice(0)) {
+        const id = `ollama_tc_leak_${toolCalls.length}_${Date.now()}`;
+        logger.warn('Recovered a tool call the model emitted as text', {
+          tool: call.name, model: params.model,
+        });
+        params.onToolStart?.({ id, name: call.name });
+        toolCalls.push({ id, name: call.name, args: call.args });
+      }
+    };
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -741,10 +758,18 @@ export async function callOllama(params: {
           if (params.onThinking) params.onThinking(data.message.thinking);
         }
         if (data.message.content) {
+          // ORDER MATTERS. The leak filter runs first, on the raw content, because
+          // stripControlSigils deletes <tool_call>/</tool_call> as "control
+          // sigils" — which would leave the filter nothing to recognise and let
+          // the call's JSON body through as the answer.
+          let buf = leakFilter.push(data.message.content);
+          adoptLeakedCalls();
+          if (!buf) return true;
+
           // Strip raw control sigils (gemma/gpt-oss templates leak these into
           // content). Hold back a trailing partial "<..." until it completes so
           // a sigil split across chunks is still removed cleanly.
-          let buf = sigilPending + data.message.content;
+          buf = sigilPending + buf;
           sigilPending = '';
           buf = stripControlSigils(buf);
           const lt = buf.lastIndexOf('<');
@@ -815,6 +840,12 @@ export async function callOllama(params: {
       reader.releaseLock();
     }
 
+    // Drain the leak filter: release any text it was holding back in case a
+    // marker was still arriving, and adopt a call that was left unterminated.
+    const leakTail = leakFilter.finish();
+    adoptLeakedCalls();
+    if (leakTail) sigilPending += leakTail;
+
     // Flush any held-back partial sigil. If it never completed into a full
     // sigil it's just stray text — strip what we can and keep the rest.
     if (sigilPending) {
@@ -823,6 +854,26 @@ export async function callOllama(params: {
       if (tail) {
         textContent += tail;
         params.onToken!(tail);
+      }
+    }
+
+    // The untagged case: no markers at all, just a bare JSON object that IS a
+    // tool call. Only actioned when the model produced no real tool calls and
+    // the whole answer is that object — anything looser risks eating a
+    // legitimate JSON reply. The text has already streamed by this point (we
+    // cannot know what it is until it ends), so the visible chat may briefly
+    // show it; what matters is that the turn now carries a real tool call
+    // instead of ending with the model waiting on a result that never comes.
+    if (toolCalls.length === 0 && looksLikeBareToolCall(textContent)) {
+      const rescued = parseLeakedToolCall(textContent);
+      if (rescued) {
+        logger.warn('Recovered a bare-JSON tool call from the answer text', {
+          tool: rescued.name, model: params.model,
+        });
+        const id = `ollama_tc_bare_0_${Date.now()}`;
+        params.onToolStart?.({ id, name: rescued.name });
+        toolCalls.push({ id, name: rescued.name, args: rescued.args });
+        textContent = '';
       }
     }
 
@@ -861,8 +912,19 @@ export async function callOllama(params: {
     prompt_eval_count?: number;
   };
 
-  const textContent = stripControlSigils(data.message.content ?? '');
+  // Recover tool calls written into the answer before anything else touches the
+  // content — exactly as on the streaming path, and for the same reason: the
+  // sigil stripper below would remove the markers and leave the payload behind.
+  const nonStreamLeak = new ToolCallLeakFilter();
+  const leakedText = nonStreamLeak.push(data.message.content ?? '') + nonStreamLeak.finish();
+  let textContent = stripControlSigils(leakedText);
   const toolCalls: ModelResponse['toolCalls'] = [];
+  for (const call of nonStreamLeak.recovered) {
+    logger.warn('Recovered a tool call the model emitted as text', {
+      tool: call.name, model: params.model,
+    });
+    toolCalls.push({ id: `ollama_tc_leak_${toolCalls.length}_${Date.now()}`, name: call.name, args: call.args });
+  }
 
   // Reasoning comes only from the native `thinking` field.
   const thinkingContent = data.message.thinking ?? '';
@@ -882,6 +944,18 @@ export async function callOllama(params: {
         name: tc.function.name,
         args: args as Record<string, unknown>,
       });
+    }
+  }
+
+  // Untagged bare-JSON tool call — same narrow rule as the streaming path.
+  if (toolCalls.length === 0 && looksLikeBareToolCall(textContent)) {
+    const rescued = parseLeakedToolCall(textContent);
+    if (rescued) {
+      logger.warn('Recovered a bare-JSON tool call from the answer text', {
+        tool: rescued.name, model: params.model,
+      });
+      toolCalls.push({ id: `ollama_tc_bare_0_${Date.now()}`, name: rescued.name, args: rescued.args });
+      textContent = '';
     }
   }
 

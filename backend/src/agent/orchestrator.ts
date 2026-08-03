@@ -50,6 +50,23 @@ export function describeToolProgress(partialJson: string): { path?: string; byte
   return { path: filePath, bytes: partialJson.length, lines: lines + 1 };
 }
 
+/**
+ * The spec ids touched by a set of file diffs.
+ *
+ * Specs have no creation tool any more — the agent just writes
+ * `.bubbly/specs/<name>/requirements.md`. So "which spec did that touch" is a
+ * question about paths, answered here, and it is how a session gets linked to
+ * the spec it is authoring and how the Specs panel learns a checkbox moved.
+ */
+export function specIdsInDiff(diffs: Array<{ path: string }>): string[] {
+  const ids = new Set<string>();
+  for (const d of diffs) {
+    const m = /(?:^|\/)\.bubbly\/specs\/([^/]+)\//.exec(d.path.replace(/\\/g, '/'));
+    if (m && m[1] && !m[1].includes('..')) ids.add(m[1]);
+  }
+  return [...ids];
+}
+
 const LEAD_TOOL_NAMES = new Set<string>([
   // Planning + delegation + human input
   'update_plan',
@@ -61,9 +78,7 @@ const LEAD_TOOL_NAMES = new Set<string>([
   'read_files',
   'list_directory',
   'get_file_tree',
-  'search_in_files',
-  'grep_search',
-  'find_files',
+  'search',
   'get_repo_map',
   'find_symbol',
   'find_references',
@@ -74,33 +89,53 @@ const LEAD_TOOL_NAMES = new Set<string>([
   // Waiting on slow work is needed in EVERY mode — a spec lead watching a test
   // run should no more poll for it than a vibe lead should.
   'watch',
-  // Spec authoring (read + structure only; no code mutation)
-  'create_spec',
-  'read_spec',
-  'list_specs',
-  'update_spec_status',
-  'add_spec_task',
-  'update_task_status',
-  'get_next_task',
-  'set_spec_design',
-  'approve_spec_phase',
-  'add_sub_tasks',
+  // Authoring a document for the user is a lead activity in every mode: it is
+  // how a plan, a summary or a report gets delivered without being pasted into
+  // the conversation.
+  'artifact',
 ]);
 
 const LEAD_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((t) => LEAD_TOOL_NAMES.has(t.name));
 
-/** Spec-authoring tools — ONLY available in spec_session threads. */
-const SPEC_TOOL_NAMES = new Set<string>([
-  'create_spec', 'read_spec', 'list_specs', 'update_spec_status', 'add_spec_task',
-  'update_task_status', 'get_next_task', 'set_spec_design', 'approve_spec_phase', 'add_sub_tasks',
-]);
+/**
+ * Turn the raw `plan_updated` a tool emits into the shape the client consumes.
+ *
+ * The tool layer emits `{ type, content }` where content is a JSON STRING; the
+ * client reads `event.steps`. The lead's path translated between the two, but
+ * the two worker paths spread the raw event straight through — so every worker
+ * plan arrived with `steps: undefined` and was silently dropped. Nothing warned
+ * about it because a missing plan just renders as no plan. One helper now, used
+ * by all three call sites, so they cannot drift apart again.
+ */
+type PlanSteps = Array<{ title: string; status: 'todo' | 'in_progress' | 'done' }>;
+
+function parsePlanEvent(event: unknown): PlanSteps | null {
+  const e = (event ?? {}) as { steps?: unknown; content?: unknown };
+  // Accept BOTH shapes. The worker paths hand this the raw tool event (cast
+  // through `as any` on their way up, which is why the declared type here can't
+  // be trusted), while a caller that has already translated passes `steps`.
+  // Reading whichever is present means no site can be wrong about the other.
+  if (Array.isArray(e.steps)) return e.steps.length > 0 ? (e.steps as PlanSteps) : null;
+  try {
+    const data = JSON.parse(String(e.content ?? ''));
+    return Array.isArray(data?.steps) && data.steps.length > 0 ? (data.steps as PlanSteps) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Mutating "do the work directly" tools. In VIBE mode the lead is allowed to use
- * these so small, well-scoped changes don't have to pay the cost of spinning up
- * a worker sub-agent (which burns extra tokens and time). Big jobs still go
- * through delegate_task. In SPEC mode these stay off the lead — spec work is
- * always delegated/structured.
+ * Mutating "do the work directly" tools. The lead has these in BOTH modes so
+ * small, well-scoped changes don't have to pay the cost of spinning up a worker
+ * sub-agent (which burns extra tokens and time). Big jobs still go through
+ * delegate_task.
+ *
+ * Spec mode used to withhold every one of these, which made a certain kind of
+ * sense when a spec was authored through dedicated tools: the lead planned, the
+ * workers built. But specs are now ordinary markdown files, and a lead that
+ * cannot call write_file cannot write requirements.md. Rather than reintroduce
+ * a special-cased writer, the spec lead is simply hands-on like the vibe lead —
+ * it authors its own documents, and still delegates the big implementation work.
  */
 const DIRECT_WORK_TOOL_NAMES = new Set<string>([
   'write_file', 'edit_file', 'append_file', 'delete_file', 'create_directory',
@@ -115,25 +150,20 @@ const DIRECT_WORK_TOOL_NAMES = new Set<string>([
 const DIRECT_WORK_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((t) => DIRECT_WORK_TOOL_NAMES.has(t.name));
 
 /**
- * The lead's toolset for a given thread type. Hard separation of modes:
- *   - vibe_coding: planning (update_plan) + delegation + read-only navigation
- *     PLUS direct-work tools so the lead can make minimal edits itself without
- *     elevating to a worker. NO spec tools — a spec must NEVER be created here.
- *   - spec_session: planning-free (specs ARE the plan), delegation + read-only
- *     navigation + spec-authoring tools. No direct-work tools (spec work is
- *     always structured/delegated).
- * delegate_task is available in BOTH modes.
+ * The lead's toolset for a given thread type.
+ *
+ * Both modes get the same tools now; what differs is the WORKING METHOD the
+ * system prompt sets out, not the capability list. The one exception is
+ * update_plan: in a spec session, tasks.md IS the plan, and a second parallel
+ * plan widget would just be somewhere for the two to disagree.
  */
 function leadToolsForThread(threadType?: ThreadType) {
+  const have = new Set(LEAD_TOOL_DEFINITIONS.map((t) => t.name));
+  const all = [...LEAD_TOOL_DEFINITIONS, ...DIRECT_WORK_TOOL_DEFINITIONS.filter((t) => !have.has(t.name))];
   if (threadType === 'spec_session') {
-    // Everything in the lead set except update_plan (specs ARE the plan here).
-    return LEAD_TOOL_DEFINITIONS.filter((t) => t.name !== 'update_plan');
+    return all.filter((t) => t.name !== 'update_plan');
   }
-  // Vibe coding (default): drop spec-authoring tools, but ADD direct-work tools
-  // so the lead can handle small edits directly (only delegating big tasks).
-  const base = LEAD_TOOL_DEFINITIONS.filter((t) => !SPEC_TOOL_NAMES.has(t.name));
-  const have = new Set(base.map((t) => t.name));
-  return [...base, ...DIRECT_WORK_TOOL_DEFINITIONS.filter((t) => !have.has(t.name))];
+  return all;
 }
 
 import { loadSteeringContext, loadReadme, detectProjectType } from '../steering/loader';
@@ -152,23 +182,15 @@ import {
   saveSessionPlan,
   recordSessionChanges,
 } from '../session/manager';
-import { 
-  lockSpecToSession, 
-  getNextTask, 
-  updateTaskStatus, 
-  areAllTasksComplete,
-  updateSpec,
-  readSpec,
-} from './tools/specs';
+import { readSpec } from './tools/specs';
+import { buildRuntimeStateBlock, buildHandoffStateNote } from './runtimeState';
 import { getAllSettings } from '../db/index';
 import { StreamBuffer } from '../models/streamBuffer';
-import { verifyTaskCompletion } from './verifier';
 import { getIndex, buildRepoMap } from './intelligence/codeIntelligence';
 import { runValidation, formatIssuesForRepair } from './intelligence/validator';
 import { compactHistory, sanitizeHistory, estimateTotalTokens } from './contextManager';
 import { getContextLimit, usableInputTokens, estimateTextTokens } from './contextLimits';
 import { resolveNumCtx } from '../models/ollama';
-import { runSpecToCompletion } from './specOrchestrator';
 import {
   shouldMigrateForPressure,
   detectModelDowngrade,
@@ -206,10 +228,43 @@ export function resolveQuestion(questionId: string, answer: string): boolean {
   return true;
 }
 
-// Active sessions that can be stopped
-const activeSessions = new Map<string, { stop: () => void }>();
+/**
+ * Runs currently in flight, keyed by session id. This is the ONLY record of
+ * "is this thread busy", and it is what makes a run single-flight.
+ *
+ * It used to be a bare stop-handle map that nothing ever consulted before
+ * starting work, which had a nasty consequence: two `chat` messages for the
+ * same session — a double-tap on Send, a queued message replayed after a
+ * reconnect, a second window on the same thread — started two complete agent
+ * loops over one conversation. Both appended to the same history, both streamed
+ * into the same socket and both executed their tool calls, so the user saw the
+ * generation branch and every tool fire twice. And because the second loop
+ * overwrote the first's stop handle here, Stop only ever cancelled the newer
+ * one; the older kept running (and kept writing files) with nothing left in the
+ * UI able to reach it.
+ */
+interface ActiveRun {
+  stop: () => void;
+  startedAt: number;
+}
+const activeSessions = new Map<string, ActiveRun>();
+
+/** Is a run already in flight for this thread? */
+export function isSessionRunning(sessionId: string): boolean {
+  return activeSessions.has(sessionId);
+}
 
 export function stopSession(sessionId: string): void {
+  // Stop means stop, including the things that would restart it. A detached
+  // watcher's whole job is to wake this thread back up; leaving one armed after
+  // the user pressed Stop means the agent springs back to life minutes later
+  // with no prompt from anyone. Cancel them first, whether or not a run is
+  // currently in flight — a thread can be idle and still have watchers armed.
+  try {
+    const { watchers } = require('./tools/watchers') as typeof import('./tools/watchers');
+    watchers.cancelForSession(sessionId);
+  } catch { /* watcher teardown must never block a stop */ }
+
   const session = activeSessions.get(sessionId);
   if (session) {
     logger.info('Session stop requested', { sessionId });
@@ -290,34 +345,71 @@ export function buildSystemPrompt(
 
 ## Spec Session Mode — staged, human-in-the-loop spec authoring
 
+### A spec is THREE MARKDOWN FILES. There are no spec tools.
+
+Every spec lives in the project at \`.bubbly/specs/<spec-name>/\`, as exactly three files:
+
+    .bubbly/specs/<spec-name>/requirements.md
+    .bubbly/specs/<spec-name>/design.md
+    .bubbly/specs/<spec-name>/tasks.md
+
+\`<spec-name>\` is a short kebab-case slug you choose from the title (e.g. "offline-sync", "fix-login-race"). You create, read and edit these with the ORDINARY filesystem tools — \`write_file\`, \`read_file\`, \`edit_file\`, \`list_directory\`. Nothing else. There is no create_spec, no add_spec_task, no update_task_status, no get_next_task, no approve_spec_phase. Do not look for them and do not describe them to the user; they were removed because a tool round-trip is a worse way to edit a checkbox than editing the checkbox.
+
+### Task state lives in tasks.md, as a checkbox
+
+Each task is one top-level markdown checkbox with a stable bold id:
+
+    - [ ] **T1** Add the sync queue module
+      - Files: src/sync/queue.ts, src/sync/queue.test.ts
+      - Depends on: (none)
+      - Requirements: R-2, R-5
+      - Done when: queued writes survive a reload and flush in order once online
+      - Verify with: npm test src/sync/queue.test.ts
+
+Three markers, and only these three:
+- \`- [ ]\` — not started
+- \`- [~]\` — in progress (you are working on it right now)
+- \`- [x]\` — done and verified
+
+**To pick the next task**: read tasks.md and take the first \`- [~]\` (resume it) or, if there is none, the first \`- [ ]\` whose "Depends on" tasks are all \`- [x]\`. That is the whole algorithm — read the file, look at the list.
+**To start a task**: \`edit_file\` that one line, changing \`- [ ]\` to \`- [~]\`.
+**To finish a task**: change \`- [~]\` to \`- [x]\`.
+Change ONE marker per edit and leave the rest of the line untouched. Keep at most one task at \`- [~]\`. Never rewrite the whole file to update a status — that loses the user's own edits.
+
+Nothing verifies these transitions for you. Marking \`- [x]\` is you asserting, on the record, that the acceptance criterion is met and the verify command passed. Do not write that character until you have actually seen it pass.
+
+### Who you are here
+
 You are a TECH LEAD doing real engineering, not filling in a template. In a Spec Session you build a spec with the user BEFORE any code is written, one document at a time, each gated by the user's approval. A spec is only worth writing if it is grounded in THIS codebase and precise enough that a competent stranger could implement it without asking you anything.
+
+You are hands-on: you have the full toolset (write_file, edit_file, run_command, browser_control…). Author the three documents yourself. For IMPLEMENTATION, use the same judgment as any engineer — do small, well-scoped tasks directly, and delegate a genuinely large task to a worker with delegate_task.
 
 ### THE IRON RULE — read the previous stage before you write the next one
 
-Each document is derived from the one before it. You may not author a stage from memory, from the conversation, or from what you assume the earlier document said. Before you write ANY stage, you must actually re-read its inputs in this turn:
+Each document is derived from the one before it. You may not author a stage from memory, from the conversation, or from what you assume the earlier document said. Before you write ANY stage, you must actually re-read its inputs IN THIS TURN with \`read_file\`:
 
-- Before **Design**: call \`read_spec(spec_id)\` AND \`read_file(".bubbly/specs/<spec_id>/requirements.md")\`.
-- Before **Tasks**: read BOTH \`requirements.md\` AND \`design.md\`.
-- Before **each implementation task**: read \`tasks.md\` (for the exact task text and its dependencies) AND the section of \`design.md\` that task implements.
+- Before writing **design.md**: read \`.bubbly/specs/<spec-name>/requirements.md\`.
+- Before writing **tasks.md**: read BOTH \`requirements.md\` AND \`design.md\`. (One \`read_files\` call takes both.)
+- Before starting **each implementation task**: read \`tasks.md\` (for the exact task text, its id and its dependencies) AND the section of \`design.md\` that task implements.
 
 Open your reply for a stage by naming what you read and the specific constraints you're carrying forward from it (e.g. "requirements.md R-4 requires offline writes to queue, and design.md §3 puts that in the sync worker — so this task owns the queue, not the UI"). If you cannot cite the previous stage, you have not read it: go read it. Skipping this is how a spec ends up internally inconsistent — a design that quietly drops a requirement, tasks that implement something the design never described.
 
 ### Ground the spec in reality FIRST
 
-Before writing requirements, spend a few tool calls learning the actual project: \`get_repo_map\`, \`find_symbol\`, \`grep_search\`, \`read_file\` on the files this will touch. A spec that invents module names, ignores the existing architecture, or re-specifies something already built is worse than no spec. State briefly what already exists and what has to change. If the request is genuinely ambiguous on something that changes the design, use **ask_user** — but ask about the DECISION, not about things you could have looked up.
+Before writing requirements, spend a few tool calls learning the actual project: \`get_repo_map\`, \`find_symbol\`, \`search\`, \`read_file\` on the files this will touch. A spec that invents module names, ignores the existing architecture, or re-specifies something already built is worse than no spec. State briefly what already exists and what has to change. If the request is genuinely ambiguous on something that changes the design, use **ask_user** — but ask about the DECISION, not about things you could have looked up.
 
 ### The three documents
 
-**1. Requirements — what and why, testable.**
-Each requirement is an EARS-style statement with a stable id, and a concrete acceptance test. Rigor means covering more than the happy path:
+**1. requirements.md — what and why, testable.**
+Give each requirement a stable id as a bold prefix (\`- **R-1** WHEN … THE SYSTEM SHALL …\`) — those ids are what design.md and tasks.md refer back to, so they must not change once written. Each is an EARS-style statement with a concrete acceptance test. Rigor means covering more than the happy path:
 - The functional behaviour, stated as an observable outcome, not an implementation ("the user sees X", not "we call Y").
 - Error and edge cases: empty, missing, malformed, duplicate, concurrent, offline, unauthorized, very large.
 - Non-functional constraints that actually bind: performance budgets, data limits, security/permissions, compatibility, accessibility.
 - Explicit **non-goals** — what this deliberately does NOT do. This is what stops scope creep during implementation.
 Every requirement must be falsifiable. If you cannot describe how it would fail, it is a wish, not a requirement — rewrite it.
 
-**2. Design — how, with the trade-offs made explicit.**
-Read requirements first (see the iron rule). Then write, as markdown in your reply:
+**2. design.md — how, with the trade-offs made explicit.**
+Read requirements.md first (see the iron rule). Then write:
 - The approach, and the alternatives you rejected with the reason. A design with no rejected alternative is a design nobody thought about.
 - Components/modules, their responsibilities, and **which existing files change vs. which are new**.
 - Data models and interfaces given concretely — real type/function signatures, real field names, real API shapes.
@@ -326,13 +418,13 @@ Read requirements first (see the iron rule). Then write, as markdown in your rep
 - **A traceability line: every requirement id → the component that satisfies it.** Any requirement with no home means the design is incomplete.
 - The **test strategy**: what is unit-tested, what needs integration tests, what has to be checked in the browser, and what fixtures/mocks are needed.
 
-**3. Tasks — the executable breakdown.**
-Read requirements AND design first. Then break the work down properly. A good task:
-- Is ONE coherent unit a worker can finish and verify in a single focused session. If it touches more than a handful of files or has "and" in the title joining unrelated work, it is too big — split it with \`add_sub_tasks\`.
-- Names its **target files** and its **dependencies** (which task ids must be done first). Order the list so dependencies come before dependents.
-- States a **concrete acceptance criterion** — an observable, checkable outcome, not "works correctly".
-- States **how it is verified**: the exact command to run (\`npm test path/to/file\`, \`npm run build\`, \`npx tsc --noEmit\`) or the browser check to perform.
-- Cites the requirement id(s) and design section it implements.
+**3. tasks.md — the executable breakdown.**
+Read requirements.md AND design.md first. Then break the work down properly, in the checkbox format shown above. A good task:
+- Is ONE coherent unit finishable and verifiable in a single focused session. If it touches more than a handful of files or has "and" in the title joining unrelated work, it is too big — split it into two tasks (or indent sub-checkboxes beneath it).
+- Names its **Files:** and its **Depends on:** (task ids that must be \`- [x]\` first). Order the list so dependencies come before dependents.
+- States a **Done when:** — an observable, checkable outcome, not "works correctly".
+- States a **Verify with:** — the exact command that proves it (\`npm test path/to/file\`, \`npm run build\`, \`npx tsc --noEmit\`) or the browser check to perform.
+- Cites the **Requirements:** ids and the design section it implements.
 
 Task-breakdown rules that are not optional:
 - **Tests are part of the task that introduces the behaviour, never a single "write tests" task at the end.** A task is not done until its own tests exist and pass. If you find yourself adding a final "add tests" task, you have written the other tasks wrong.
@@ -344,39 +436,29 @@ Task-breakdown rules that are not optional:
 ### The staged flow
 
 CHOOSING THE STARTING POINT (do this FIRST):
-- Before creating anything, use **ask_user** to ask whether they'd like to start **requirements-first** (default — clarify what/why, then design) or **design-first** (jump into architecture, then back-fill requirements). Offer both as options.
-- Regardless of which they choose, call **create_spec(staged: true, startPhase: "requirements" | "design")** EXACTLY ONCE, right after they answer — this is what creates the spec_id everything else attaches to. Never call create_spec a second time for the same spec.
-- If they choose requirements-first: create_spec already saved the requirements — present them, then proceed 2 → 3 above.
-- If they choose design-first: create_spec (startPhase: "design") creates an empty spec already sitting in the design phase — then author the **Design**, get approval, then derive **Requirements** from it and get approval, then **Tasks**. The approval gates and the iron rule still apply — just in the order the user picked.
-- If the user already made their preference clear in their message, skip the question and proceed the same way (create_spec once, then author).
+- Before writing anything, use **ask_user** to ask whether they'd like to start **requirements-first** (default — clarify what/why, then design) or **design-first** (jump into architecture, then back-fill requirements). Offer both as options. If the user already made their preference clear in their message, skip the question.
+- Requirements-first: write \`requirements.md\` → present → get approval → write \`design.md\` → present → approval → write \`tasks.md\` → present → approval → implement.
+- Design-first: write \`design.md\` first, get approval, then DERIVE \`requirements.md\` from it and get approval, then \`tasks.md\`. The iron rule still applies, just in the order the user picked.
+- Create the folder implicitly by writing the first document — \`write_file(".bubbly/specs/<spec-name>/requirements.md", …)\` creates any missing directories.
 
-Approval gates:
-- After the user approves a document, call approve_spec_phase(spec_id, "requirements"|"design"|"tasks"). This advances the phase. You may NOT author the next document before the current one is approved — the tools will refuse.
-- Call approve_spec_phase EXACTLY ONCE per phase. If it tells you the phase was already advanced, do NOT call it again — move on to the pending action it names.
-- Approval is the USER's to give. Never call approve_spec_phase because the document looks finished to you.
-- When the user asks for a change to an approved document, make the change AND check what it invalidates downstream. Changing a requirement after the design exists means the design needs revisiting; say so rather than silently leaving them inconsistent.
-
-### HOW EACH DOCUMENT IS ACTUALLY SAVED (you do NOT have write_file here)
-
-Each spec lives at \`.bubbly/specs/<spec_id>/\` as **requirements.md**, **design.md**, **tasks.md** — those files are the source of truth, and you READ them with \`read_file\`. But in this mode you have no file-writing tools, so each document is persisted by its own spec tool:
-- **Requirements** → the \`requirements\` array of \`create_spec\`. Each string becomes a testable EARS property.
-- **Design** → just WRITE it as markdown in your reply; it is captured and saved to design.md automatically. (\`set_spec_design\` exists if you need to replace the text outright, but the normal path is simply writing it.)
-- **Tasks** → \`create_spec(task_details: [...])\` at creation, or \`add_spec_task\` one at a time, then \`add_sub_tasks\` to decompose. Put the acceptance criterion in the task's acceptance field — that is what the verifier checks against.
-- **Progress** → \`update_task_status(spec_id, task_id, "in_progress" | "done")\`. Never hand-edit checkboxes; you can't, and the tool is the thing that updates the UI.
-Always ALSO present the document in your reply so the user can review it in chat.
+Approval gates — these are a conversation, not a tool:
+- After writing a document, PRESENT it and stop. Do not begin the next document in the same turn.
+- Do not move on until the user has actually said yes. The document looking finished to you is not approval. There is no tool that will refuse for you, so this discipline is the only thing holding the gate.
+- When the user asks for a change to an already-approved document, make the change AND check what it invalidates downstream. Changing a requirement after design.md exists means the design needs revisiting — say so and offer to update it, rather than silently leaving the two inconsistent.
 
 ### Style
 - Be concise and specific. Present each document ONCE, then STOP — your turn is over after presenting. No restating, no "here's what I'll do" preamble, no re-summarizing what you just wrote.
+- Write the file, then in chat give a SHORT summary and the headline decisions — the user can open the file for the full text. Do not paste the whole document back into the conversation as well.
 - Write like an engineer briefing an engineer: concrete nouns, real names, no filler adjectives. "Fast" is not a requirement; "renders in under 100ms for 1000 rows" is.
 
-### Executing tasks (only once phase is "ready")
-- Work tasks in dependency order. Before each task: re-read tasks.md and the relevant design section (the iron rule applies here too). Mark it in_progress, delegate it, verify it, then mark it done.
-- **delegate_task tickets must be self-contained.** The worker cannot see this conversation or the spec. Give it: the goal, the target files, the relevant design constraints quoted inline, the acceptance criterion, and the exact command that proves it works.
-- A task is done when its acceptance criterion is demonstrably met AND its verification command passes AND its tests exist. A worker reporting "done" is a claim, not proof — if the evidence isn't in its report, ask for it or check yourself.
-- NEVER move to the next task until the current one is genuinely complete and verified. Keep at most one task in_progress (a delegate_parallel batch may hold several).
-- When a task reveals the design was wrong, STOP and say so. Update the spec with the user rather than quietly improvising something the design doesn't describe — an unrecorded deviation makes every later task wrong too.
+### Executing tasks (once tasks.md is approved)
+- Work tasks in dependency order. Before each task: re-read \`tasks.md\` and the relevant design section (the iron rule applies here too).
+- Flip the task's marker to \`- [~]\`, do the work, prove it, then flip it to \`- [x]\`. One task at \`- [~]\` at a time.
+- Small task → do it yourself. Large task → **delegate_task**. Delegation tickets must be SELF-CONTAINED: the worker cannot see this conversation or the spec, so give it the goal, the target files, the relevant design constraints quoted inline, the acceptance criterion, and the exact command that proves it works.
+- A task is done when its **Done when:** is demonstrably met AND its **Verify with:** command has actually been run and passed AND its tests exist. A worker reporting "done" is a claim, not proof — if the evidence isn't in its report, run the check yourself before flipping the marker.
+- When a task reveals the design was wrong, STOP and say so. Update design.md with the user rather than quietly improvising something the design doesn't describe — an unrecorded deviation makes every later task wrong too.
 - After the last task, run the full check (build + test suite) and report the actual result, including anything still failing.
-${specId ? `\nThe active spec for this session is: ${specId}` : `\nNo spec exists yet — create one (staged) as your first meaningful action once you understand the request.`}
+${specId ? `\nThe active spec for this session is \`${specId}\` — its files are at \`.bubbly/specs/${specId}/\`.` : `\nNo spec exists yet. Use \`list_directory(".bubbly/specs")\` to see whether one is already there before starting a new one.`}
 `;
   }
 
@@ -394,16 +476,16 @@ ${process.platform === 'win32'
 
 ## How you work
 ${threadType === 'spec_session'
-  ? `You are the lead engineer. You do NOT edit files, run commands, or implement anything yourself — you literally don't have those tools. Your job for every request:
-1. Briefly orient yourself if needed using your read-only tools (get_repo_map, read_file, grep_search, find_symbol, etc.).
-2. Build the spec (requirements → design → tasks) as described above. The SPEC and its tasks ARE your plan — there is no separate plan tool in this mode.
-3. For EACH task, call **delegate_task** with a clear, self-contained instruction (plus likely target files and a concrete acceptance criterion). A focused worker agent does the real work — reads/edits files, runs commands, validates — and reports back.
-   - When several upcoming tasks are INDEPENDENT and touch completely separate files, call **delegate_parallel** with 2-4 of them at once to run those workers simultaneously. Each task MUST list its target_files and they must not overlap. If they can't be cleanly separated, use delegate_task one at a time.
-4. Track progress with **update_task_status(spec_id, task_id, "in_progress" | "done")** — set in_progress before you delegate, done only once the worker's result is verified. That tool is what updates tasks.md and the UI; you have no file-writing tools in this mode, so never try to edit tasks.md yourself. Keep at most one task in_progress (a delegate_parallel batch may hold several).
-   - You READ tasks.md with read_file to see the exact task text, ids and dependencies — always re-read it before starting a task rather than working from memory.
-5. When every step is done, give a short final summary and STOP. Your turn is over — do not keep going.
+  ? `You are the lead engineer, and you are hands-on. Your job for every request:
+1. Briefly orient yourself in the real codebase (get_repo_map, read_file, search, find_symbol).
+2. Build the spec — requirements.md → design.md → tasks.md — as described below, writing each with write_file and getting the user's approval between them. Those three files ARE your plan; there is no separate plan tool in this mode.
+3. Execute tasks in dependency order, flipping each task's checkbox in tasks.md as you go (\`- [ ]\` → \`- [~]\` → \`- [x]\`).
+   - Small, well-scoped task: just do it (edit_file, write_file, run_command).
+   - Genuinely large task: **delegate_task** to a focused worker that does it end-to-end and reports back.
+   - Several INDEPENDENT tasks touching completely separate files: **delegate_parallel** with 2-4 at once. Each must list its target_files and they must not overlap.
+4. When every task is \`- [x]\`, give a short final summary and STOP. Your turn is over — do not keep going.
 
-In Spec mode, implementation ALWAYS goes through delegate_task or delegate_parallel. You never paste code, never edit files, never run commands directly. You stay locked to THIS spec — do not start unrelated work; if the user asks for something outside the spec, fold it into the spec (new requirement/task) rather than freelancing.`
+Stay locked to THIS spec. If the user asks for something outside it, fold it into the spec — a new requirement and a new task — rather than freelancing work that no document describes.`
   : `You are a hands-on engineer who knows when to do it yourself and when to delegate. Your judgment on scope is the whole game:
 
 **Do it directly (the common case).** For small, well-scoped changes — editing a file or two, a quick fix, adding a component, running a command, a small new file — just DO it with your tools (edit_file, write_file, run_command, etc.). Do NOT spin up a worker for this; delegating small work wastes tokens and time.
@@ -413,7 +495,7 @@ In Spec mode, implementation ALWAYS goes through delegate_task or delegate_paral
 Rule of thumb: if you could finish it yourself in a handful of tool calls, do it yourself. If it would take a worker its own focused session, delegate it.
 
 Your flow for a request:
-1. Orient if needed (get_repo_map, read_file, grep_search, find_symbol).
+1. Orient if needed (get_repo_map, read_file, search, find_symbol).
 2. Lay out a plan with **update_plan** for anything non-trivial (multiple steps). Skip the plan for a one-liner.
 3. Execute: edit directly for small steps, delegate the big ones.
 4. Mark steps done with **update_plan** as you go.
@@ -431,7 +513,7 @@ You have read-only tools to orient yourself and write good delegation instructio
 - **find_symbol(name)** — jump to where something is declared (file + line + signature).
 - **find_references(name)** — every place a symbol is used (the blast radius before a change).
 - **get_file_outline(path)** — a file's structure without reading the whole thing.
-- **grep_search(pattern)** — regex search across files. **find_files(query)** — fuzzy-find a file by name.
+- **search(query)** — find text anywhere. Literal by default; \`regex:true\` for a pattern, \`target:"filenames"\` to locate a file by name, \`mode:"count"\` to survey a broad query cheaply. Narrow it with \`include:"**/*.ts"\` rather than reading through a wall of matches.
 - **read_file** / **read_files** — read one or several files.
 
 ## What workers do (so you write good tickets when you DO delegate)
@@ -487,6 +569,23 @@ If the user explicitly wants v3 (a JS config, an existing v3 codebase), install 
 
 **Always verify styling actually applied** — open the Bubbly Preview and screenshot it. Tailwind failing produces an unstyled page, not an error, so a "successful" build proves nothing.
 
+## PROVE IT WORKS — a change you have not run is not finished
+
+Writing the code is the easy half. You do not get to call anything done on the strength of it looking correct: a change is finished when you have watched it pass. The LIVE WORKSPACE STATE block below lists the verification commands this project ACTUALLY has — use those exact commands rather than assuming \`npm test\` exists.
+
+After ANY change to code, before you report back:
+
+1. **Type-check / compile.** TypeScript: \`npx tsc --noEmit\` (or the project's typecheck script). Go: \`go build ./...\`. Rust: \`cargo check\`. Python: \`mypy\` if configured. This is the cheapest possible check and it catches the majority of what you got wrong — run it first, every time.
+2. **Run the tests that cover what you touched**, then the suite if it's fast. Read the output. A test run you started but didn't read the result of has told you nothing.
+3. **Lint** if the project has a linter configured. Fix what you introduced; do NOT go fixing pre-existing violations across the codebase — that buries your change in noise.
+4. **Build** if you changed anything that affects the build (config, dependencies, entry points).
+
+**Write the tests as part of the change, not after it.** New behaviour ships with a test that would fail without it. A bug fix ships with a test that reproduces the bug — write that test FIRST, watch it fail, then fix it, so you have proof you actually fixed the reported thing and not something adjacent. If the project has no test setup at all, say so and set one up if the change warrants it, rather than silently skipping.
+
+**Then look at it.** If the project has a UI, a passing test suite is not evidence the screen is right. Start the app, open **Bubbly Preview** with browser_control, and actually exercise the thing you built — click it, type into it, screenshot it. Whole categories of failure (an unstyled page, a component that never mounts, a broken layout, a request that 404s) produce no test failure and no build error at all.
+
+**Report honestly.** Say what you ran and what it said. If something still fails, say that plainly with the error — do not describe partial work as complete, and do not bury a failure under a summary of what went well. "I changed X; \`npm test\` passes; \`tsc\` clean; the page renders and the button works" is worth more than any amount of description.
+
 ## Background work — keep moving; do NOT wait around
 \`run_background\` returns immediately. The DEFAULT after starting something is to **carry on with other work** — do not wait for it, and do not poll \`get_process_output\` in a loop (each poll is a full round-trip that re-sends the whole conversation and usually tells you nothing).
 - Read a background process's output ONCE, when you actually need to know something from it.
@@ -498,6 +597,13 @@ If the user explicitly wants v3 (a JS config, an existing v3 codebase), install 
 - DEFAULT TO ACTION: decide and proceed on routine choices (naming, structure, sensible defaults). Note the choice briefly.
 - Use **ask_user(question)** ONLY when genuinely blocked or facing a high-stakes, ambiguous decision you shouldn't make alone.
 - Don't dump large blocks of implementation code into chat — make the change with your tools instead. (Short illustrative snippets inside an explanation are fine.)
+
+### Documents → \`artifact\`, not the chat
+When what you owe the user is a DOCUMENT rather than a reply — a migration plan, an audit or comparison, a summary of how a subsystem works, a generated page, a diagram — write it with \`artifact\` instead of pasting it into the conversation. It gets a title, a version history, and its own panel; the chat gets a card.
+- Rule of thumb: more than ~15 lines, and the user would plausibly want to re-read it later or compare it against a revised version → artifact.
+- After writing one, say in one or two sentences what it is and what you concluded. Do NOT restate its contents — they are already on screen.
+- Revising: call \`artifact\` again with the SAME id and the complete new text. That adds a version; the old one stays readable.
+- An artifact is NOT a project file. If the project needs the file, use \`write_file\`. The user decides whether an artifact gets saved into the workspace.
 
 ## Working style${threadType === 'vibe_coding' ? ' (Vibe mode — fast and direct)' : ''}
 ${threadType === 'vibe_coding'
@@ -710,9 +816,33 @@ export async function runAgentLoop(params: {
     logger.info('Resuming existing session', { sessionId, existingMessageCount: existingMessages.length });
   }
 
+  // Single-flight. A thread runs once at a time; a second request for a thread
+  // that is already working is refused here rather than quietly doubling every
+  // generation and tool call downstream (see activeSessions). The check has to
+  // live at exactly this point: after the session id is known, before anything
+  // is registered or any work begins.
+  const inFlight = activeSessions.get(sessionId);
+  if (inFlight) {
+    const runningForMs = Date.now() - inFlight.startedAt;
+    logger.warn('Refusing a second concurrent run for a session that is already working', {
+      sessionId, runningForMs,
+    });
+    params.onEvent({
+      type: 'error',
+      message:
+        `This thread is already running (started ${Math.round(runningForMs / 1000)}s ago). ` +
+        `Wait for it to finish, or press Stop first — running two at once would duplicate its work.`,
+      recoverable: true,
+    });
+    return;
+  }
+
   let stopped = false;
   const abortController = new AbortController();
-  activeSessions.set(sessionId, { stop: () => { stopped = true; abortController.abort(); } });
+  activeSessions.set(sessionId, {
+    stop: () => { stopped = true; abortController.abort(); },
+    startedAt: Date.now(),
+  });
 
   updateSessionStatus(sessionId, 'running');
   
@@ -729,7 +859,9 @@ export async function runAgentLoop(params: {
     // Get the session to check thread type and spec_id
     const session = getSession(sessionId);
     const threadType = session?.threadType || params.threadType;
-    const specId = session?.specId || params.specId;
+    // Not const: a spec session starts with no spec, and gets linked to one the
+    // moment the agent writes its first document (see specIdsInDiff).
+    let specId = session?.specId || params.specId;
     
     const baseSystemPrompt = buildSystemPrompt(
       params.workspacePath, 
@@ -790,77 +922,31 @@ export async function runAgentLoop(params: {
     // Build conversation history
     let userMessage = params.userMessage;
     
-    // For spec sessions, give the model lightweight awareness of the spec on
-    // the first message — informational only, NOT a forced pipeline.
-    if (threadType === 'spec_session' && specId && existingMessages.length === 0) {
-      const spec = readSpec(params.workspacePath, specId);
-      if (spec) {
-        const completedTasks = spec.tasks.filter(t => t.status === 'done');
-        const inProgressTasks = spec.tasks.filter(t => t.status === 'in_progress');
-        const todoTasks = spec.tasks.filter(t => t.status === 'todo');
-        const allDone = spec.tasks.length > 0 && todoTasks.length === 0 && inProgressTasks.length === 0;
-        const phase = spec.phase ?? 'ready';
-
-        let phaseGuidance = '';
-        if (phase === 'requirements') {
-          phaseGuidance = 'This spec is still in the REQUIREMENTS phase. Present/refine requirements and get approval (approve_spec_phase "requirements") before authoring the design. Do not write tasks or code yet.';
-        } else if (phase === 'design') {
-          phaseGuidance = 'Requirements are approved. This spec is in the DESIGN phase. Read requirements, author/refine the design (set_spec_design), and get approval before creating tasks.';
-        } else if (phase === 'tasks') {
-          phaseGuidance = 'Requirements and design are approved. This spec is in the TASKS phase. Read both documents, break the work into concrete tasks (and sub-tasks), and get approval before executing.';
-        } else if (allDone) {
-          phaseGuidance = "All tasks are complete. Respond normally — you may extend the spec, start new work, or just answer.";
-        } else {
-          phaseGuidance = todoTasks.length > 0
-            ? 'The spec is approved and ready. Continue executing tasks in dependency order, verifying each before the next.'
-            : 'Continue as appropriate.';
-        }
-
-        const specContext = `
-## Spec context (for your awareness)
-
-Spec: ${spec.title} (${spec.type}) — status: ${spec.status} · phase: ${phase}
-Progress: ${completedTasks.length}/${spec.tasks.length} tasks completed
-${todoTasks.length > 0 ? `Remaining tasks: ${todoTasks.map(t => t.title).join(', ')}` : ''}
-${phaseGuidance}
-
----
-
-User message: `;
-
-        userMessage = specContext + userMessage;
-        logger.info('Injected spec awareness into first message', {
-          specId,
-          phase,
-          totalTasks: spec.tasks.length,
-          completed: completedTasks.length,
-          allDone,
-        });
-      }
-    }
-    
-    // For new spec sessions without a spec, inject staged-workflow guidance.
+    // Spec sessions no longer get a per-message spec briefing here. The live
+    // state block (runtimeState.ts) reports the active spec's phase, progress
+    // and next task on EVERY model call, which is strictly better than a
+    // snapshot glued to the first message and then going stale for the rest of
+    // the turn. What remains is the one thing that block cannot say: how to
+    // begin when there is no spec yet.
     if (threadType === 'spec_session' && !specId && existingMessages.length === 0) {
-      const specCreationContext = `
+      userMessage = `
 ## Spec Session — start the staged spec workflow
 
 Build the spec WITH the user, one document at a time. Do not write code yet.
 
 1. **Ground yourself in the actual codebase first** — gather_context / get_repo_map / find_symbol / read_file on whatever this will touch. Requirements written without looking at the project invent module names and re-specify things that already exist. Note briefly what exists today and what must change.
-2. Use ask_user to ask whether to start REQUIREMENTS-FIRST (default) or DESIGN-FIRST — unless the user already made their preference clear.
-3. Regardless of order, call create_spec(staged: true, startPhase: "requirements" | "design") EXACTLY ONCE to create the spec and get its spec_id — this always happens first, even for design-first. Call it ONLY once per session; never call it again for this spec later in the conversation, even if you're about to write the design.
-4. Then author the first document: for requirements-first, requirements were just saved by create_spec — present them. For design-first, now write the design in your reply (the app saves it to design.md automatically using the spec_id from step 3 — do not call set_spec_design until the spec exists). Present it and wait for approval before moving on.
+2. Check \`list_directory(".bubbly/specs")\` — if a spec for this work already exists, continue it rather than starting a second one.
+3. Use ask_user to ask whether to start REQUIREMENTS-FIRST (default) or DESIGN-FIRST — unless the user already made their preference clear.
+4. Author the first document by WRITING THE FILE: \`write_file(".bubbly/specs/<spec-name>/requirements.md", …)\` (or design.md for design-first). Choose a short kebab-case <spec-name> yourself. Then present a summary and STOP for approval.
 
-Remember the iron rule for every later stage: re-read the previous document with read_file (\`.bubbly/specs/<spec_id>/requirements.md\` / \`design.md\`) before authoring the next one, and cite what you carried forward from it.
+Remember the iron rule for every later stage: re-read the previous document with read_file before authoring the next one, and cite what you carried forward from it.
 
 ---
 
-User request: `;
-      
-      userMessage = specCreationContext + userMessage;
-      logger.info('Injected staged spec creation context for new spec session', { sessionId });
+User request: ` + userMessage;
+      logger.info('Injected spec-session opening guidance', { sessionId });
     }
-    
+
     // Prepend the repo map to the first message of a fresh session so the model
     // starts grounded in the codebase structure.
     if (repoMapContext && existingMessages.length === 0) {
@@ -884,10 +970,7 @@ User request: `;
         });
         params.onEvent({ type: 'status', content: 'This model has a smaller context window than the thread was built with — summarizing and continuing in a fresh thread…' });
         try {
-          const specForContext = specId ? readSpec(params.workspacePath, specId) : null;
-          const extraContext = specForContext
-            ? `Spec "${specForContext.title}" — ${specForContext.tasks.filter(t => t.status === 'done').length}/${specForContext.tasks.length} tasks done.`
-            : undefined;
+          const extraContext = buildHandoffStateNote({ workspacePath: params.workspacePath, specId }) || undefined;
           const migration = await migrateToFreshThread({
             config: agentConfig,
             parentSessionId: sessionId,
@@ -903,7 +986,7 @@ User request: `;
           updateSessionStatus(oldSessionId, 'idle');
           activeSessions.delete(oldSessionId);
           sessionId = migration.newSessionId;
-          activeSessions.set(sessionId, { stop: () => { stopped = true; abortController.abort(); } });
+          activeSessions.set(sessionId, { stop: () => { stopped = true; abortController.abort(); }, startedAt: Date.now() });
           updateSessionStatus(sessionId, 'running');
           // Replace the working history with the seed + the user's new message.
           messages.length = 0;
@@ -952,52 +1035,10 @@ User request: `;
     const filesTouchedThisTask = new Set<string>();
     let consecutiveEmptyResponses = 0;
 
-    // ---- Multi-agent spec dispatch ----------------------------------------
-    // In Spec Session mode, once a spec exists the orchestrator OWNS the plan:
-    // it dispatches a focused Task Agent per task with progress tracking, rather
-    // than letting the model free-form chat. If we're resuming a session that
-    // already has a spec with pending tasks, dispatch immediately.
-    const dispatchSpec = async (sid: string): Promise<boolean> => {
-      const spec = readSpec(params.workspacePath, sid);
-      if (!spec || spec.tasks.length === 0) return false;
-      // Respect the staged workflow: only auto-dispatch once the spec is fully
-      // authored and approved (phase 'ready'). A staged spec still in
-      // requirements/design/tasks authoring must NOT be executed yet. Legacy
-      // specs have no phase and are treated as ready.
-      if (spec.phase && spec.phase !== 'ready') return false;
-      const hasPending = spec.tasks.some((t) => t.status !== 'done');
-      if (!hasPending) return false;
-
-      params.onEvent({ type: 'status', content: `Dispatching task agents for "${spec.title}"…` });
-      const runResult = await runSpecToCompletion({
-        config: agentConfig,
-        workspacePath: params.workspacePath,
-        specId: sid,
-        requireApprovalForWrites,
-        requireApprovalForShell,
-        onEvent: params.onEvent,
-        requestApproval: (toolName, args, preview) =>
-          requestApprovalShared({ sessionId: sessionId!, toolName, args, preview, onEvent: params.onEvent }),
-        isStopped: () => stopped,
-        logAudit: (e) => logAuditEvent({ sessionId: sessionId!, ...e }),
-      });
-      logger.info('Spec dispatch finished', { specId: sid, ...runResult });
-      return true;
-    };
-
-    if (threadType === 'spec_session' && specId && existingMessages.length === 0 && multiAgentSpec) {
-      // Only auto-dispatch on the very first message of a brand-new spec session
-      // when multi-agent mode is explicitly enabled. Never hijack follow-up
-      // messages — the agent must always be able to respond to the user freely.
-      const dispatched = await dispatchSpec(specId);
-      if (dispatched) {
-        updateSessionStatus(sessionId, 'idle');
-        logAuditEvent({ sessionId, eventType: 'session_complete', tokensUsed: 0 });
-        activeSessions.delete(sessionId);
-        params.onEvent({ type: 'done', sessionId });
-        return;
-      }
-    }
+    // The orchestrator no longer dispatches spec tasks itself. That machinery
+    // existed to drive the tool-based task loop (get_next_task → update_task_status
+    // → verify → repeat); with tasks.md as the source of truth the agent walks its
+    // own checkboxes, so a second scheduler here could only disagree with it.
 
     // --- Context budget, tied to the ACTIVE model's real window -------------
     // The migration check compares the prompt against the model's operative
@@ -1092,10 +1133,10 @@ User request: `;
           });
           params.onEvent({ type: 'status', content: 'Approaching the context limit — summarizing and continuing in a fresh thread so nothing is lost…' });
           try {
-            const specForContext = specId ? readSpec(params.workspacePath, specId) : null;
-            const extraContext = specForContext
-              ? `Spec "${specForContext.title}" — ${specForContext.tasks.filter(t => t.status === 'done').length}/${specForContext.tasks.length} tasks done. Remaining: ${specForContext.tasks.filter(t => t.status !== 'done').map(t => t.title).join('; ') || 'none'}.`
-              : undefined;
+            // The live state matters MORE than the transcript here: this is
+            // exactly the moment the new thread would otherwise restart a dev
+            // server that never stopped running.
+            const extraContext = buildHandoffStateNote({ workspacePath: params.workspacePath, specId }) || undefined;
             const migration = await migrateToFreshThread({
               config: agentConfig,
               parentSessionId: sessionId,
@@ -1113,7 +1154,7 @@ User request: `;
             activeSessions.delete(oldSessionId);
             // Switch the active session to the new thread.
             sessionId = migration.newSessionId;
-            activeSessions.set(sessionId, { stop: () => { stopped = true; abortController.abort(); } });
+            activeSessions.set(sessionId, { stop: () => { stopped = true; abortController.abort(); }, startedAt: Date.now() });
             updateSessionStatus(sessionId, 'running');
             updateFirstMessage(sessionId, params.userMessage);
             // Reset working history to the seed brief.
@@ -1125,6 +1166,24 @@ User request: `;
             logger.error('Context-pressure migration failed; continuing in place', { error: e instanceof Error ? e.message : String(e) });
           }
         }
+      }
+
+      // Re-observe the world for THIS model call.
+      //
+      // Deliberately per-iteration, not per-turn. A turn can run for twenty
+      // tool calls: the install that finished on iteration 4, the dev server
+      // that crashed on iteration 9, the run config the agent authored on
+      // iteration 2 — all of it has to be visible to iteration 5, 10 and 3
+      // respectively, or the agent spends the rest of the turn acting on a
+      // world that no longer exists. The block is a few hundred tokens and is
+      // built from stat calls and in-memory tables, so it is far cheaper than
+      // the wasted tool call it prevents.
+      let liveSystemPrompt = systemPrompt;
+      try {
+        const stateBlock = buildRuntimeStateBlock({ workspacePath: params.workspacePath, specId });
+        if (stateBlock) liveSystemPrompt = systemPrompt + stateBlock;
+      } catch (err) {
+        logger.warn('Could not build live workspace state', { error: err instanceof Error ? err.message : String(err) });
       }
 
       let assistantText = '';
@@ -1166,7 +1225,7 @@ User request: `;
         try {
           response = await callModel({
             config: agentConfig,
-            systemPrompt,
+            systemPrompt: liveSystemPrompt,
             messages,
             tools: [...leadToolsForThread(threadType), ...mcpToolDefs],
             enableThinking,
@@ -1177,6 +1236,22 @@ User request: `;
               logger.info('Waiting out model rate limit', { waitMs, iteration });
             },
             onToken: (text) => {
+              // Drain reasoning BEFORE emitting any answer text.
+              //
+              // The two buffers batch on independent timers, so without this the
+              // ordering was a race the reasoning usually lost: the model
+              // switches from thinking to text, the first answer token flushes
+              // immediately (instant first paint), and the reasoning still
+              // sitting in the thinking buffer goes out when ITS timer fires —
+              // 60ms later, after the answer had already started. The client
+              // had by then closed the thinking bubble, so the tail of one
+              // continuous thought opened a SECOND bubble underneath the
+              // response: one reasoning block split in two with an answer
+              // wedged between them.
+              //
+              // flush() on an empty buffer is a no-op, so this costs nothing on
+              // the overwhelmingly common path where thinking already drained.
+              thinkingBuffer.flush();
               streamBuffer.push(text);
             },
             onToolStart: ({ id, name }) => {
@@ -1735,7 +1810,8 @@ User request: `;
               // as owner:'worker' and DO NOT persist it as the session plan, so
               // it never clobbers the lead's (main) plan. The UI shows both.
               if (event.type === 'plan_updated') {
-                params.onEvent({ ...event, owner: 'worker' } as any);
+                const steps = parsePlanEvent(event);
+                if (steps) params.onEvent({ type: 'plan_updated', steps, owner: 'worker' } as any);
                 return;
               }
               params.onEvent(event);
@@ -1809,7 +1885,11 @@ User request: `;
             maxParallel: MAX_PARALLEL_AGENTS,
             onEvent: (event) => {
               // Keep a worker's own mini-plan from clobbering the lead plan.
-              if (event.type === 'plan_updated') { params.onEvent({ ...event, owner: 'worker' } as any); return; }
+              if (event.type === 'plan_updated') {
+                const steps = parsePlanEvent(event);
+                if (steps) params.onEvent({ type: 'plan_updated', steps, owner: 'worker' } as any);
+                return;
+              }
               params.onEvent(event);
             },
             requestApproval: (toolName, args, preview) =>
@@ -1868,13 +1948,17 @@ User request: `;
               // itself instead of waiting for the user to notice and open it.
               params.onEvent({ type: 'preview_url', url: event.content } as any);
             } else if (event.type === 'plan_updated') {
-              try {
-                const data = JSON.parse(event.content);
-                // Persist the plan so the collapsible plan strip survives a
-                // refresh / reopen of the thread. This is the MAIN (lead) plan.
-                try { saveSessionPlan(sessionId!, data.steps); } catch { /* non-critical */ }
-                params.onEvent({ type: 'plan_updated', steps: data.steps, owner: 'main' } as any);
-              } catch { /* ignore */ }
+              const steps = parsePlanEvent(event);
+              if (steps) {
+                // Persist the plan so it survives a refresh / reopen of the
+                // thread. This is the MAIN (lead) plan.
+                try { saveSessionPlan(sessionId!, steps); } catch { /* non-critical */ }
+                params.onEvent({ type: 'plan_updated', steps, owner: 'main' } as any);
+              }
+            } else if (event.type === 'artifact') {
+              // The document itself travels with the event so the panel can
+              // render it without a round-trip back for content we already have.
+              try { params.onEvent({ type: 'artifact', ...JSON.parse(event.content) } as any); } catch { /* ignore */ }
             } else {
               params.onEvent(event as any);
             }
@@ -1885,7 +1969,8 @@ User request: `;
             toolCall.args,
             params.workspacePath,
             toolOnEvent,
-            abortController.signal
+            abortController.signal,
+            { sessionId },
           );
           
           logger.info('Tool execution completed', { 
@@ -1951,237 +2036,20 @@ User request: `;
           continue;
         }
 
-        // Handle spec creation in Spec Session threads
-        if (toolCall.name === 'create_spec' && execResult.spec) {
-          const session = getSession(sessionId);
-          if (session && session.threadType === 'spec_session') {
-            logger.info('Spec created in Spec Session thread', { 
-              sessionId, 
-              specId: execResult.spec.id 
-            });
-            
-            // Lock the spec to this session
-            lockSpecToSession(params.workspacePath, execResult.spec.id, sessionId);
-            
-            // Update the session with the spec_id
-            updateSessionSpecId(sessionId, execResult.spec.id);
-            
-            // Notify frontend about spec creation
-            params.onEvent({
-              type: 'spec_created',
-              spec: execResult.spec,
-            });
-            
-            logger.info('Spec locked to session', { 
-              sessionId, 
-              specId: execResult.spec.id 
-            });
-
-            // HAND OFF to the multi-agent dispatcher: now that the spec exists
-            // with tasks, the orchestrator owns execution. The chat loop stops
-            // free-forming and task agents take over with progress tracking.
-            if (multiAgentSpec && execResult.spec.tasks.length > 0) {
-              const dispatched = await dispatchSpec(execResult.spec.id);
-              if (dispatched) {
-                updateSessionStatus(sessionId, 'idle');
-                logAuditEvent({ sessionId, eventType: 'session_complete', tokensUsed: totalInputTokens + totalOutputTokens });
-                activeSessions.delete(sessionId);
-                params.onEvent({ type: 'done', sessionId });
-                return;
-              }
-            }
-          }
-        }
-        
-        // Handle spec updates (task status changes)
-        if (toolCall.name === 'update_spec_status' && execResult.spec) {
-          params.onEvent({
-            type: 'spec_updated',
-            spec: execResult.spec,
-          });
-        }
-        
-        // Handle task status updates and check for spec completion
-        if (toolCall.name === 'update_task_status' && execResult.spec) {
-          params.onEvent({
-            type: 'spec_updated',
-            spec: execResult.spec,
-          });
-          
-          // VERIFIER AGENT: when a task is marked done, verify it was actually completed
-          if (toolCall.args.status === 'done' && filesTouchedThisTask.size > 0) {
-            const taskId = String(toolCall.args.task_id ?? '');
-            const verifiedTask = execResult.spec.tasks.find(t => t.id === taskId)
-              || execResult.spec.tasks.find(t => taskId.includes(t.id) || t.id.includes(taskId));
-            
-            if (verifiedTask) {
-              params.onEvent({
-                type: 'status',
-                content: `Verifying task: ${verifiedTask.title}...`
-              });
-
-              // STEP 1 — deterministic validation (cheap, grounded). Catches
-              // syntax/type errors before spending a model call on judgment.
-              const touched = Array.from(filesTouchedThisTask);
-              const validation = autoValidate
-                ? await runValidation({
-                    workspacePath: params.workspacePath,
-                    changedFiles: touched,
-                    timeoutMs: 30000,
-                  })
-                : { ok: true, issues: [], checkedWith: [], summary: 'validation disabled' };
-
-              // Surface these issues in the Problems panel.
-              params.onEvent({ type: 'diagnostics', issues: validation.issues } as any);
-
-              if (!validation.ok) {
-                logger.warn('Deterministic validation failed - reverting task', {
-                  taskId: verifiedTask.id,
-                  issues: validation.issues.length,
-                });
-                updateTaskStatus(params.workspacePath, execResult.spec.id, verifiedTask.id, 'in_progress');
-                const revertedSpec = readSpec(params.workspacePath, execResult.spec.id);
-                if (revertedSpec) params.onEvent({ type: 'spec_updated', spec: revertedSpec });
-
-                params.onEvent({ type: 'status', content: `Validation failed: ${validation.summary}` });
-                params.onEvent({
-                  type: 'tool_result',
-                  id: toolCall.id,
-                  tool: toolCall.name,
-                  result: `Validation failed: ${validation.summary}`,
-                });
-                logAuditEvent({
-                  sessionId,
-                  eventType: 'task_validation',
-                  resultSummary: `${verifiedTask.title}: FAIL (${validation.checkedWith.join(',')}) - ${validation.summary}`,
-                });
-                toolResultBlocks.push({
-                  type: 'tool_result',
-                  tool_use_id: toolCall.id,
-                  content: `VALIDATION FAILED for task "${verifiedTask.title}".\n\n${formatIssuesForRepair(validation)}\n\nThe task is NOT done. Fix these specific errors with edit_file, call validate_changes to confirm, then mark the task done again. Do NOT move on until validation passes.`,
-                });
-                continue;
-              }
-
-              // STEP 2 — semantic verification (LLM judges completeness vs. the task).
-              const verification = await verifyTaskCompletion({
-                config: agentConfig,
-                workspacePath: params.workspacePath,
-                task: verifiedTask,
-                specTitle: execResult.spec.title,
-                filesTouched: Array.from(filesTouchedThisTask),
-                readFileContent: async (p: string) => {
-                  try {
-                    const { readFile } = await import('./tools/filesystem');
-                    return await readFile(params.workspacePath, p);
-                  } catch {
-                    return null;
-                  }
-                },
-              });
-              
-              logAuditEvent({
-                sessionId,
-                eventType: 'task_verification',
-                resultSummary: `${verifiedTask.title}: ${verification.verified ? 'PASS' : 'FAIL'} - ${verification.reason}`,
-              });
-              
-              if (!verification.verified) {
-                // Verification failed - revert task to in_progress and tell the agent to fix it
-                logger.warn('Task verification failed - reverting to in_progress', {
-                  taskId: verifiedTask.id,
-                  reason: verification.reason,
-                });
-                
-                updateTaskStatus(params.workspacePath, execResult.spec.id, verifiedTask.id, 'in_progress');
-                const revertedSpec = readSpec(params.workspacePath, execResult.spec.id);
-                if (revertedSpec) {
-                  params.onEvent({ type: 'spec_updated', spec: revertedSpec });
-                }
-                
-                params.onEvent({
-                  type: 'status',
-                  content: `Verification failed: ${verification.reason}`
-                });
-                
-                // Emit tool_result for UI consistency
-                params.onEvent({
-                  type: 'tool_result',
-                  id: toolCall.id,
-                  tool: toolCall.name,
-                  result: `Verification failed: ${verification.reason}`,
-                });
-                
-                // Inject a repair message so the agent fixes the issue (dream.md repair loop)
-                const suggestionsText = verification.suggestions.length > 0
-                  ? `\n\nSuggested fixes:\n${verification.suggestions.map(s => `- ${s}`).join('\n')}`
-                  : '';
-                toolResultBlocks.push({
-                  type: 'tool_result',
-                  tool_use_id: toolCall.id,
-                  content: `VERIFICATION FAILED for task "${verifiedTask.title}".\n\nReason: ${verification.reason}${suggestionsText}\n\nThe task is NOT done. Fix the issues above using edit_file or write_file, then mark the task done again. Do NOT move to the next task until this is fixed.`,
-                });
-                
-                // Skip the rest of this tool's normal result handling
-                continue;
-              } else {
-                params.onEvent({
-                  type: 'status',
-                  content: `Verified: ${verifiedTask.title}`
-                });
-                // Clear touched files for the next task
-                filesTouchedThisTask.clear();
-              }
-            }
-          }
-          
-          // Check if all tasks are now complete
-          const allComplete = areAllTasksComplete(params.workspacePath, execResult.spec.id);
-          
-          if (allComplete && execResult.spec.status !== 'done') {
-            logger.info('All tasks complete - marking spec as done', { 
-              specId: execResult.spec.id,
-              sessionId 
-            });
-            
-            // Update spec status to done
-            const updatedSpec = updateSpec(params.workspacePath, execResult.spec.id, { 
-              status: 'done' 
-            });
-            
-            if (updatedSpec) {
-              params.onEvent({
-                type: 'status',
-                content: `All tasks complete! Spec "${updatedSpec.title}" is done.`
-              });
-              
-              params.onEvent({
-                type: 'spec_updated',
-                spec: updatedSpec,
-              });
-              
-              logAuditEvent({
-                sessionId,
-                eventType: 'spec_completed',
-                resultSummary: `Spec "${updatedSpec.title}" completed - all ${updatedSpec.tasks.length} tasks done`,
-              });
-            }
-          }
-        }
-        
-        // Generic: any other spec-returning tool (get_next_task auto-completes tasks,
-        // add_spec_task adds tasks) should also push a live update to the frontend
-        if (
-          execResult.spec &&
-          toolCall.name !== 'create_spec' &&
-          toolCall.name !== 'update_spec_status' &&
-          toolCall.name !== 'update_task_status'
-        ) {
-          params.onEvent({
-            type: 'spec_updated',
-            spec: execResult.spec,
-          });
-        }
+        // NOTE: there is deliberately nothing here that inspects a spec.
+        //
+        // This is where create_spec / update_spec_status / update_task_status
+        // used to be intercepted, and where marking a task done triggered a
+        // two-stage gate: deterministic validation, then an LLM verifier that
+        // could silently revert the task to in_progress. It is gone with the
+        // tools it hung off. A checkbox in tasks.md is now the agent's own
+        // assertion — the prompt makes it responsible for actually running the
+        // task's Verify with: command before writing the x, and the user can
+        // read the file and disagree. A verifier that could quietly undo a
+        // completion the user had just watched happen, on the judgment of a
+        // model call, was doing more damage than the false completions it
+        // caught: the agent would re-do finished work, and specs would stall
+        // in a repair loop nobody asked for.
 
         params.onEvent({
           type: 'tool_result',
@@ -2216,6 +2084,24 @@ User request: `;
             invalidateIndex(params.workspacePath);
           } catch { /* non-critical */ }
           params.onEvent({ type: 'diff', files: execResult.diff });
+
+          // A write under .bubbly/specs/<name>/ IS a spec change — that is the
+          // whole point of the format. There is no create_spec event to hook
+          // any more, so the spec a session belongs to is discovered from the
+          // files the agent actually touched, and the panel is refreshed from
+          // disk. This is what keeps the UI live while the agent edits a
+          // checkbox with edit_file.
+          for (const touchedSpecId of specIdsInDiff(execResult.diff)) {
+            if (!specId) {
+              specId = touchedSpecId;
+              try { updateSessionSpecId(sessionId, touchedSpecId); } catch { /* non-critical */ }
+              logger.info('Session linked to spec by file write', { sessionId, specId: touchedSpecId });
+            }
+            try {
+              const spec = readSpec(params.workspacePath, touchedSpecId);
+              if (spec) params.onEvent({ type: 'spec_updated', spec });
+            } catch { /* the panel can refresh itself */ }
+          }
         }
 
         logAuditEvent({
@@ -2263,30 +2149,21 @@ User request: `;
       params.onEvent({ type: 'status', content: 'Session stopped by user.' });
     }
 
-    // Reconcile lingering task state so the UI never shows a stuck spinner.
-    // When the agent's turn ends with a task still in_progress, we do NOT
-    // assume it's done (that would be a false completion). We revert it to
-    // 'todo' so it's clearly unfinished and resumable, and emit the update so
-    // the spinner stops. The verifier/agent will complete it on the next turn.
-    if (!stopped && specId) {
+    // Push the spec's state to the UI at the end of the turn.
+    //
+    // We deliberately no longer RECONCILE it. The old code reverted any task
+    // still marked in_progress back to todo, on the theory that an unfinished
+    // task shouldn't show a spinner. But `- [~]` is not a spinner — it is a
+    // durable statement in a file the user can read, meaning "this is the one I
+    // was working on". Resetting it destroyed exactly the information needed to
+    // resume, and it did so by rewriting the user's file behind their back.
+    // A task left at `- [~]` is now simply left there, which is both honest and
+    // what the next turn needs in order to pick up where it stopped.
+    if (specId) {
       try {
         const spec = readSpec(params.workspacePath, specId);
-        if (spec) {
-          const inProgress = spec.tasks.filter((t) => t.status === 'in_progress');
-          if (inProgress.length > 0) {
-            inProgress.forEach((t) => {
-              updateTaskStatus(params.workspacePath, specId, t.id, 'todo');
-            });
-            const reconciled = readSpec(params.workspacePath, specId);
-            if (reconciled) params.onEvent({ type: 'spec_updated', spec: reconciled });
-            logger.info('Reconciled lingering in_progress tasks to todo at loop end', {
-              sessionId, specId, count: inProgress.length,
-            });
-          }
-        }
-      } catch (e) {
-        logger.warn('Task reconciliation at loop end failed', { error: e instanceof Error ? e.message : String(e) });
-      }
+        if (spec) params.onEvent({ type: 'spec_updated', spec });
+      } catch { /* the panel refreshes on its own */ }
     }
 
     updateSessionStatus(sessionId, 'idle');

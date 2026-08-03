@@ -215,6 +215,8 @@ export interface SpecTask {
   satisfiesProperties?: string[];
   /** Concrete, checkable definition of done for this task. */
   acceptance?: string;
+  /** The exact command that proves this task works (e.g. "npm test src/foo"). */
+  verifyWith?: string;
   /** How the verifier reasoned about this task on its last check. */
   verificationNote?: string;
   /** Optional ordered sub-tasks — a task can be broken into smaller units. */
@@ -262,6 +264,9 @@ export type WSClientMessage =
   | { type: 'preview_result'; id: string; ok: boolean; result: string; image?: string; url?: string; reason?: string }
   /** Renderer advertising whether it can actually drive a live webview right now. */
   | { type: 'preview_ready'; capable: boolean; desktop: boolean; hasWebview: boolean; url?: string | null }
+  /** "This window is now looking at thread X." Lets a detached watcher's
+   *  wake-up stream into the right window instead of every connected one. */
+  | { type: 'focus_session'; sessionId: string | null }
   | { type: 'ping' };
 
 export type WSServerEvent =
@@ -288,6 +293,9 @@ export type WSServerEvent =
   | { type: 'preview_control'; id: string; action: string; params: Record<string, unknown> }
   /** Reveal the Bubbly Preview panel because a browser tool is about to run. */
   | { type: 'preview_activate' }
+  /** A registered wait finished. Informational — a DETACHED one also restarts
+   *  the thread automatically (see the settle listener in index.ts). */
+  | { type: 'watcher_settled'; id: string; label: string; outcome: 'met' | 'timeout' | 'failed' | 'cancelled'; detail: string }
   | { type: 'spec_created'; spec: Spec }
   | { type: 'spec_updated'; spec: Spec }
   | { type: 'task_dispatched'; specId: string; taskId: string; taskTitle: string; index: number; total: number }
@@ -299,6 +307,20 @@ export type WSServerEvent =
   | { type: 'context_compacted'; tokensBefore: number; tokensAfter: number }
   | { type: 'context_migrated'; fromSessionId: string; toSessionId: string; reason: 'context_limit' | 'model_downgrade'; summary: string }
   | { type: 'plan_updated'; steps: Array<{ title: string; status: 'todo' | 'in_progress' | 'done' }>; owner?: 'main' | 'worker' }
+  // An agent-authored document was created or revised. Carries the content so
+  // the panel can render it without fetching what we just sent.
+  | {
+      type: 'artifact';
+      id: string;
+      title: string;
+      kind: 'markdown' | 'html' | 'code' | 'svg' | 'mermaid' | 'json';
+      language?: string;
+      version: number;
+      versionCount: number;
+      note?: string;
+      body: string;
+      updatedAt: number;
+    }
   | { type: 'prompt_checkpoint'; id: string; prompt: string; createdAt: string }
   | { type: 'question_asked'; questionId: string; question: string; options?: string[] }
   | { type: 'ollama_retry'; attempt: number; maxAttempts: number; delayMs: number; error: string }

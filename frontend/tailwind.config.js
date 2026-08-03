@@ -79,6 +79,30 @@ export default {
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'],
       },
+      /**
+       * The whole type scale, stepped down one notch from Tailwind's defaults.
+       *
+       * Overriding the named sizes rather than zooming the root is deliberate:
+       * every `text-sm` / `text-xs` in the app moves together, the values are
+       * readable here instead of being an emergent property of a root rem, and
+       * the arbitrary `text-[11px]` labels — which are already at the floor of
+       * legibility — are left exactly where they are rather than being dragged
+       * down to 9px along with everything else.
+       *
+       * Line heights come down with the sizes, but proportionally less: dense
+       * text needs its leading more than large text does, and simply scaling
+       * both by the same factor is what makes a shrunk UI feel cramped.
+       */
+      fontSize: {
+        xs: ['0.6875rem', { lineHeight: '1rem' }],        // 12 → 11px
+        sm: ['0.8125rem', { lineHeight: '1.125rem' }],    // 14 → 13px
+        base: ['0.875rem', { lineHeight: '1.375rem' }],   // 16 → 14px
+        lg: ['1rem', { lineHeight: '1.5rem' }],           // 18 → 16px
+        xl: ['1.125rem', { lineHeight: '1.625rem' }],     // 20 → 18px
+        '2xl': ['1.375rem', { lineHeight: '1.8125rem' }], // 24 → 22px
+        '3xl': ['1.625rem', { lineHeight: '2rem' }],      // 30 → 26px
+        '4xl': ['2rem', { lineHeight: '2.375rem' }],      // 36 → 32px
+      },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'fade-in': 'fadeIn 0.2s ease-out',

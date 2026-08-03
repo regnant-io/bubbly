@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
-import { PlanStrip } from './PlanStrip';
 import { WelcomeScreen } from './WelcomeScreen';
 import { useStore } from '../../store';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -78,24 +77,11 @@ export function ChatPanel() {
         </ErrorBoundary>
       )}
 
-      {/* Agent plan strips — main (lead) plan, plus a worker's mini-plan when
-          one is active. Tagged so they're never confused. */}
-      {((agentPlan?.length ?? 0) > 0 || (workerPlan?.length ?? 0) > 0) && (
-        <div className="shrink-0 px-4 pt-2 space-y-2">
-          {(agentPlan?.length ?? 0) > 0 && (
-            <PlanStrip
-              label="Plan"
-              owner="main"
-              steps={agentPlan}
-              collapsed={planCollapsed}
-              onToggle={() => setPlanCollapsed((c) => !c)}
-            />
-          )}
-          {(workerPlan?.length ?? 0) > 0 && (
-            <PlanStrip label="Worker plan" owner="worker" steps={workerPlan} />
-          )}
-        </div>
-      )}
+      {/* Plans no longer sit above the input. A pinned strip could only show the
+          newest plan, so a worker publishing its own erased the lead's, and a
+          long run left no record of how the work was scoped. Every plan now
+          accumulates in the Plans panel (tagged MAIN/AGENT) with a one-line
+          anchor in the transcript at the point it appeared. */}
 
       {/* Mid-work question from the agent (ask_user) — width matches the input column */}
       {pendingQuestion && (

@@ -154,6 +154,51 @@ ${HELPERS}
   };
 })()`;
 
+/**
+ * "Did this page actually paint?" — the check behind the preview's self-heal.
+ *
+ * A dev server answers `GET /` the instant it binds a port, so a liveness probe
+ * says "up" long before the app can render. On a cold Vite start the first
+ * document arrives fine and then its module requests 504 while dependencies are
+ * still being optimised; the browser is left on a technically-loaded, visually
+ * BLANK page with nothing in the console the user would ever see. That is the
+ * whole reason Start used to need a manual Refresh: the second load happened
+ * after the optimiser had finished, so it worked.
+ *
+ * Rather than sleep and hope, we ask the guest what it actually has. `blank`
+ * means the body rendered no text, no images and no canvas — the mount point is
+ * empty. `overlay` means a framework error screen (Vite/Next/CRA) is up, which
+ * is a real failure to report, never something to silently reload away.
+ */
+export const PAINT_CHECK_JS = `(() => {
+  try {
+    const b = document.body;
+    if (!b) return { blank: true, reason: 'no body' };
+    // Framework error overlays are a rendered result, not a blank page — and
+    // reloading past one would hide a genuine compile error from the user.
+    const overlaySel = 'vite-error-overlay,#vite-error-overlay,nextjs-portal,[data-nextjs-dialog],#webpack-dev-server-client-overlay,iframe#react-error-overlay';
+    const overlay = document.querySelector(overlaySel);
+    if (overlay) return { blank: false, overlay: true, reason: 'error overlay' };
+    const text = (b.innerText || '').trim();
+    const painted =
+      text.length > 0 ||
+      b.querySelector('img,svg,canvas,video,input,button') != null ||
+      // A styled but text-free shell (a loading splash) still counts as painted.
+      b.getElementsByTagName('*').length > 8;
+    return {
+      blank: !painted,
+      overlay: false,
+      readyState: document.readyState,
+      nodes: b.getElementsByTagName('*').length,
+      chars: text.length,
+    };
+  } catch (e) {
+    // A page we cannot script (about:blank, a cross-origin error page) is not
+    // evidence of a blank app — don't let it trigger a reload loop.
+    return { blank: false, overlay: false, reason: String(e && e.message || e) };
+  }
+})()`;
+
 /** Multi-strategy click. Returns {status:'clicked', strategy} or {status, candidates}. */
 export function buildClickJs(target: { selector?: string; text?: string; x?: number; y?: number }): string {
   const t = JSON.stringify(target || {});

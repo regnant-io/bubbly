@@ -83,6 +83,10 @@ const MAP: Record<string, { gerund: string; past: string; icon: ToolIconName; co
   delete_file: { gerund: 'Deleting', past: 'Deleted', icon: 'delete', color: 'text-red-agent' },
   list_directory: { gerund: 'Listing', past: 'Listed', icon: 'list', color: 'text-cyan-agent' },
   get_file_tree: { gerund: 'Mapping', past: 'Mapped', icon: 'tree', color: 'text-cyan-agent' },
+  // `search` replaced search_in_files / grep_search / find_files. The old names
+  // are kept so an older thread's transcript still renders with a proper label
+  // instead of falling through to the raw tool name.
+  search: { gerund: 'Searching', past: 'Searched', icon: 'search', color: 'text-orange-agent' },
   search_in_files: { gerund: 'Searching', past: 'Searched', icon: 'search', color: 'text-orange-agent' },
   create_directory: { gerund: 'Creating folder', past: 'Created folder', icon: 'write', color: 'text-green-agent' },
   run_command: { gerund: 'Running', past: 'Ran', icon: 'terminal', color: 'text-amber-agent' },
@@ -150,6 +154,12 @@ function targetFor(tool: string, args: Record<string, unknown> = {}): string {
       return basename(args.path);
     case 'read_files':
       return Array.isArray(args.paths) ? `${(args.paths as unknown[]).length} file(s)` : '';
+    case 'search': {
+      const q = String(args.query ?? args.pattern ?? '');
+      if (!q) return '';
+      const shown = args.regex === true ? `/${clamp(q, 30)}/` : `"${clamp(q, 30)}"`;
+      return args.target === 'filenames' ? `${shown} in filenames` : shown;
+    }
     case 'grep_search':
       return args.pattern ? `/${clamp(String(args.pattern), 30)}/` : '';
     case 'find_files':

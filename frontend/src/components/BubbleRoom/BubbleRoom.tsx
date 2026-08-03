@@ -18,6 +18,7 @@ import { loadThread } from '../../utils/messageReconstruction';
 import { fetchPromptCheckpoints } from '../../hooks/useApi';
 import { isDesktop } from '../../hooks/useDesktop';
 import { ModeTabs } from './ModeTabs';
+import { DockBar } from './DockBar';
 import { ThemeToggle } from '../Shared/ThemeToggle';
 import { PanelLeft } from '../Shared/icons';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -201,15 +202,19 @@ export function BubbleRoom() {
           )}
         </AnimatePresence>
 
-        {/* Floating restore affordance. Covers BOTH hidden states — without it,
-            hiding the rail while the sidebar is closed would leave no way back
-            except the keyboard. */}
+        {/* Restore affordance — only when the rail itself is gone.
+            Collapsing is done from the foot of the rail (see ActivityBar), so
+            this exists purely for the state where there is no rail left to
+            click. Floating it over the content while the rail IS visible would
+            put it on top of the rail's own buttons. */}
         {(leftHidden || navHidden) && (
           <motion.button
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
             onClick={() => { setLeftHidden(false); setNavHidden(false); }}
-            title={leftHidden ? 'Show side panel (Ctrl+B)' : 'Show nav rail (Ctrl+Shift+B)'}
+            title="Show side panel (Ctrl+B)"
+            aria-label="Show side panel"
+            aria-expanded={false}
             className="absolute left-3 top-3 z-20 p-1.5 rounded-lg bg-surface-2/90 backdrop-blur border border-border shadow-lg text-text-dim hover:text-text transition-colors"
           >
             <PanelLeft size={14} />
@@ -226,15 +231,31 @@ export function BubbleRoom() {
             </div>
           </div>
 
-          {/* Right stack. In Vibe mode it holds the open context panels
-              (preview/background/changes/specs/tasks/audit, stacked). In Editor
-              mode it becomes the docked AI assistant (chat). */}
+          {/* Right stack — the open context panels.
+              In Editor mode the AI chat is docked on the right, so the context
+              panels would have had nowhere to go: clicking Browser or Terminal
+              in the dock appeared to do nothing at all. They now get their own
+              column BESIDE the chat, so every launcher works identically in
+              both modes. */}
+          {uiMode === 'editor' && rightPanelOpen && (
+            <ResizablePanel
+              defaultWidth={380}
+              minWidth={280}
+              maxWidthPercent={40}
+              storageKey="ide-right-width"
+              position="left"
+              className="overflow-hidden flex flex-col shrink-0"
+            >
+              <RightPanel />
+            </ResizablePanel>
+          )}
+
           {(rightPanelOpen || uiMode === 'editor') && (
             <ResizablePanel
               defaultWidth={uiMode === 'editor' ? 420 : 400}
               minWidth={300}
               maxWidthPercent={45}
-              storageKey={uiMode === 'editor' ? 'ide-ai-width' : 'ide-right-width'}
+              storageKey={uiMode === 'editor' ? 'ide-ai-width' : 'ide-right-width-vibe'}
               position="left"
               className={uiMode === 'editor' ? 'card bg-surface-1 overflow-hidden flex flex-col shrink-0' : 'overflow-hidden flex flex-col shrink-0'}
             >
@@ -244,9 +265,12 @@ export function BubbleRoom() {
         </div>
       </div>
 
-      {/* Status pill — also hosts the context launcher buttons (Browser,
-          Background, Changes, Terminal, Specs, Tasks, Audit). */}
+      {/* Dock bar (grouped panel launchers) above the status pill. Two rows
+          because they are two different things: one takes commands, the other
+          reports state. */}
       <div className="shrink-0 card bg-surface-1 mx-2 mb-2 overflow-hidden">
+        <DockBar />
+        <div className="h-px bg-border" />
         <StatusBar />
       </div>
     </div>

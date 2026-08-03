@@ -75,7 +75,7 @@ describe('external, never-in-project location', () => {
 });
 
 describe('migration of legacy in-project state', () => {
-  it('moves an existing .bubbly OUT and cleans the project', () => {
+  it('moves machine state OUT but leaves specs in the project', () => {
     const ws = fs.mkdtempSync(path.join(root, 'ws-'));
     // Seed a legacy in-project layout.
     fs.mkdirSync(path.join(ws, '.bubbly', 'specs', 's1'), { recursive: true });
@@ -85,10 +85,22 @@ describe('migration of legacy in-project state', () => {
     const { getProjectDataDir } = load();
     const dir = getProjectDataDir(ws);
 
-    // Contents preserved at the new location…
-    expect(fs.readFileSync(path.join(dir, 'specs', 's1', 'requirements.md'), 'utf8')).toBe('# hi');
+    // Machine state moved out…
     expect(fs.existsSync(path.join(dir, 'browser-meta.json'))).toBe(true);
-    // …and the project folder is clean again.
+    expect(fs.existsSync(path.join(ws, '.bubbly', 'browser-meta.json'))).toBe(false);
+    // …but the specs stayed put. Moving them would fight the specs module,
+    // which exists to keep them in the repo where a human can read them.
+    expect(fs.readFileSync(path.join(ws, '.bubbly', 'specs', 's1', 'requirements.md'), 'utf8')).toBe('# hi');
+    expect(fs.existsSync(path.join(dir, 'specs'))).toBe(false);
+  });
+
+  it('removes .bubbly entirely when it held nothing but machine state', () => {
+    const ws = fs.mkdtempSync(path.join(root, 'ws-'));
+    fs.mkdirSync(path.join(ws, '.bubbly'), { recursive: true });
+    fs.writeFileSync(path.join(ws, '.bubbly', 'browser-meta.json'), '{"enabled":true}');
+
+    load().getProjectDataDir(ws);
+    // A clean project folder is what lets `npm create vite .` run at all.
     expect(fs.existsSync(path.join(ws, '.bubbly'))).toBe(false);
   });
 

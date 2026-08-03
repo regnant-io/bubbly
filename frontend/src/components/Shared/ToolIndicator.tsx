@@ -43,7 +43,7 @@ function resultSummary(tool: string, result: string): string | null {
   const r = result.trim();
   if (!r) return null;
   const clean = tool.replace(/^function:/, '');
-  if (['grep_search', 'search_in_files', 'find_files', 'list_directory', 'find_references'].includes(clean)) {
+  if (['search', 'grep_search', 'search_in_files', 'find_files', 'list_directory', 'find_references'].includes(clean)) {
     const lines = r.split('\n').filter((l) => l.trim()).length;
     if (/no (matches|files|results|references)/i.test(r)) return 'no results';
     return `${lines} result${lines === 1 ? '' : 's'}`;
@@ -92,6 +92,21 @@ function OutputBlock({ label, body, isError }: { label?: string; body: string; i
  */
 export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, duration, args, result, diff, repeatCount, shortcutIndex, progress }: ToolIndicatorProps) {
   const [expanded, setExpanded] = React.useState(false);
+  /**
+   * Has the user taken control of this step's disclosure?
+   *
+   * A step opens itself while it runs — you want to see a build's arguments and
+   * a write's growing line count as they happen — and closes itself the moment
+   * it finishes, so a settled transcript is a list of one-line outcomes rather
+   * than a wall of output. That automation must stop dead the first time the
+   * user clicks, or a step they deliberately opened to read would snap shut
+   * under them the instant its result landed.
+   */
+  const userControlled = React.useRef(false);
+  const toggle = React.useCallback(() => {
+    userControlled.current = true;
+    setExpanded((e) => !e);
+  }, []);
   const { bind } = useAppContextMenu();
   const display = getToolDisplay(tool, args);
   const done = status === 'complete';
@@ -118,6 +133,30 @@ export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, d
 
   const blocks = isReadFiles && result ? parseReadFilesBlocks(result) : [];
 
+  // A live detail line worth opening for while the step runs: what it is
+  // actually doing, drawn from whatever has arrived so far.
+  const liveDetail = React.useMemo(() => {
+    if (done) return null;
+    const a = args ?? {};
+    const first = (...keys: string[]) => {
+      for (const k of keys) {
+        const v = (a as Record<string, unknown>)[k];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+      }
+      return null;
+    };
+    return first('command', 'query', 'pattern', 'instruction', 'path', 'url', 'content')
+      ?? progress?.path
+      ?? null;
+  }, [done, args, progress]);
+
+  // The automatic half of the disclosure: open while running, closed once the
+  // outcome is a single line. Manual control always wins (see userControlled).
+  React.useEffect(() => {
+    if (userControlled.current) return;
+    setExpanded(!done && !!liveDetail);
+  }, [done, liveDetail]);
+
   return (
     <div className="group my-0.5 animate-fade-in">
       <div
@@ -125,13 +164,13 @@ export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, d
         className={`flex items-baseline gap-1.5 py-0.5 text-[13px] leading-relaxed ${
           hasDetails ? 'cursor-pointer' : ''
         }`}
-        onClick={() => hasDetails && setExpanded((e) => !e)}
-        role={hasDetails ? 'button' : undefined}
-        aria-expanded={hasDetails ? expanded : undefined}
+        onClick={() => { if (hasDetails || liveDetail) toggle(); }}
+        role={hasDetails || liveDetail ? 'button' : undefined}
+        aria-expanded={hasDetails || liveDetail ? expanded : undefined}
         {...bind(() => [
           ...(result ? [{ label: 'Copy output', onSelect: () => { navigator.clipboard?.writeText(result); } }] : []),
           { label: 'Copy tool name', onSelect: () => { navigator.clipboard?.writeText(cleanTool); } },
-          ...(hasDetails ? [{ label: expanded ? 'Collapse' : 'Expand', onSelect: () => setExpanded((e) => !e), separatorAfter: true }] : []),
+          ...(hasDetails || liveDetail ? [{ label: expanded ? 'Collapse' : 'Expand', onSelect: toggle, separatorAfter: true }] : []),
         ])}
       >
         {/* Status: a spinner only while working, a quiet tick when done. The
@@ -193,6 +232,12 @@ export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, d
         blocks.length > 1
           ? <div className="space-y-1">{blocks.map((b, i) => <OutputBlock key={i} label={b.title || `file ${i + 1}`} body={b.body} />)}</div>
           : <OutputBlock body={result} isError={isError} />
+      )}
+
+      {/* What the step is doing, while it's doing it. Replaced by the result
+          (and folded away) the moment it completes. */}
+      {expanded && !result && liveDetail && (
+        <OutputBlock label="running" body={liveDetail} />
       )}
     </div>
   );

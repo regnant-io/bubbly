@@ -2,12 +2,14 @@ import { Router } from 'express';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { readFile, writeFile, getFileTree } from '../agent/tools/filesystem';
+import { readFile, writeFile, getFileTree, resolveSafePath } from '../agent/tools/filesystem';
 import { getAllSettings } from '../db/index';
 import { logger } from '../utils/logger';
 import { ensureBrowserMeta, getBrowserMetaPath, setBrowserMetaPreviewUrl, primaryService } from '../agent/tools/browserControl';
 import { backgroundProcesses } from '../agent/tools/backgroundProcess';
 import { resolvePreviewTarget, isNavigableSource } from '../agent/tools/previewTarget';
+import { listArtifacts, readArtifact, deleteArtifact, artifactContent, artifactExtension } from '../agent/tools/artifacts';
+import { createEntry, renameEntry, duplicateEntry, trashEntry, revealEntry } from '../agent/tools/fileOps';
 
 export const filesRouter = Router();
 
@@ -489,3 +491,158 @@ filesRouter.get('/symbols', (req, res) => {
     return res.status(400).json({ error: errorMsg });
   }
 });
+
+// --- Artifacts ---------------------------------------------------------------
+// Agent-authored documents live in the project's private data dir, so they need
+// their own read path: the WebSocket only carries the ones written during THIS
+// session, and the panel has to show everything the project has accumulated.
+
+filesRouter.get('/artifacts', (req, res) => {
+  try {
+    res.json({ artifacts: listArtifacts(getWorkspace(req.query)) });
+  } catch (err: unknown) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+filesRouter.get('/artifacts/:id', (req, res) => {
+  try {
+    const a = readArtifact(getWorkspace(req.query), req.params.id);
+    if (!a) return res.status(404).json({ error: `No artifact "${req.params.id}".` });
+    return res.json({ artifact: a });
+  } catch (err: unknown) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+filesRouter.delete('/artifacts/:id', (req, res) => {
+  try {
+    const r = deleteArtifact(getWorkspace(req.query), req.params.id);
+    return r.ok ? res.json({ ok: true }) : res.status(404).json(r);
+  } catch (err: unknown) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+/**
+ * POST /api/files/artifacts/:id/save  { workspace?, path?, version? }
+ * Copy an artifact into the workspace as a real file. This is the ONLY way an
+ * artifact becomes part of the project — the agent cannot do it, because a
+ * document it wrote for the user to read is not automatically a file the user
+ * wants in their repo.
+ */
+filesRouter.post('/artifacts/:id/save', async (req, res) => {
+  try {
+    const ws = getWorkspace({ ...req.query, ...(req.body?.workspace ? { workspace: req.body.workspace } : {}) });
+    const a = readArtifact(ws, req.params.id);
+    if (!a) return res.status(404).json({ error: `No artifact "${req.params.id}".` });
+    const version = req.body?.version != null ? Number(req.body.version) : undefined;
+    const content = artifactContent(a, version);
+    if (!content) return res.status(400).json({ error: `Artifact "${a.id}" has no version ${version}.` });
+    const target = String(req.body?.path || `${a.id}${artifactExtension(a)}`);
+    const result = await writeFile(ws, target, content);
+    return res.json({ ok: true, path: target, diff: result });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logger.error('Failed to save artifact into the workspace', { error: errorMsg });
+    return res.status(400).json({ error: errorMsg });
+  }
+});
+
+// --- Explorer file operations ------------------------------------------------
+// The right-click menu in the file tree. These are USER actions with no review
+// step, so the destructive one goes to the OS trash rather than deleting.
+
+filesRouter.post('/entry/create', (req, res) => {
+  try {
+    const ws = getWorkspace({ workspace: req.body?.workspace });
+    const type = req.body?.type === 'directory' ? 'directory' : 'file';
+    const r = createEntry(ws, String(req.body?.parent ?? ''), String(req.body?.name ?? ''), type);
+    return r.ok ? res.json(r) : res.status(400).json(r);
+  } catch (err: unknown) {
+    return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+filesRouter.post('/entry/rename', (req, res) => {
+  try {
+    const ws = getWorkspace({ workspace: req.body?.workspace });
+    const r = renameEntry(ws, String(req.body?.path ?? ''), String(req.body?.name ?? ''));
+    return r.ok ? res.json(r) : res.status(400).json(r);
+  } catch (err: unknown) {
+    return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+filesRouter.post('/entry/duplicate', (req, res) => {
+  try {
+    const ws = getWorkspace({ workspace: req.body?.workspace });
+    const r = duplicateEntry(ws, String(req.body?.path ?? ''));
+    return r.ok ? res.json(r) : res.status(400).json(r);
+  } catch (err: unknown) {
+    return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+filesRouter.post('/entry/trash', async (req, res) => {
+  try {
+    const ws = getWorkspace({ workspace: req.body?.workspace });
+    const r = await trashEntry(ws, String(req.body?.path ?? ''));
+    return r.ok ? res.json(r) : res.status(400).json(r);
+  } catch (err: unknown) {
+    return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+filesRouter.post('/entry/reveal', async (req, res) => {
+  try {
+    const ws = getWorkspace({ workspace: req.body?.workspace });
+    const r = await revealEntry(ws, String(req.body?.path ?? ''));
+    return r.ok ? res.json(r) : res.status(400).json(r);
+  } catch (err: unknown) {
+    return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+/**
+ * GET /api/files/raw?workspace=…&path=…
+ * Serve a workspace file with its own content type, for things the editor
+ * cannot show as text: images, fonts, PDFs. Text APIs return a decoded string,
+ * which corrupts binary content — so the preview pane needs a byte-accurate
+ * path to the file rather than a lossy one.
+ */
+filesRouter.get('/raw', (req, res) => {
+  try {
+    const ws = getWorkspace(req.query);
+    const rel = String(req.query.path ?? '');
+    if (!rel) return res.status(400).json({ error: 'path is required' });
+    const full = resolveSafePath(ws, rel);
+    if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    const type = MIME_BY_EXT[path.extname(full).toLowerCase()];
+    if (type) res.setHeader('Content-Type', type);
+    // Private: a workspace file is the user's, and it must never be cached by
+    // an intermediary. no-cache (not no-store) so an unchanged file can still
+    // be revalidated cheaply while the editor is open.
+    res.setHeader('Cache-Control', 'private, no-cache');
+    return res.sendFile(full);
+  } catch (err: unknown) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+/** Only types the preview pane actually renders. Anything else is downloaded
+ *  as an opaque octet-stream by the browser rather than sniffed. */
+const MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+};

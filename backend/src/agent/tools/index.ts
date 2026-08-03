@@ -9,14 +9,15 @@ import {
   deleteFile,
   listDirectory,
   getFileTree,
-  searchInFiles,
-  regexSearchInFiles,
-  fuzzyFileSearch,
   createDirectory,
 } from './filesystem';
+import { runSearch, formatSearchOutcome, type SearchOptions } from './search';
 import { backgroundProcesses } from './backgroundProcess';
 import { createCheckpoint, listCheckpoints, revertToCheckpoint } from './checkpoint';
-import { runShell, runShellStreaming, isDestructiveCommand, isLongRunningCommand } from './shell';
+import {
+  runShell, runShellStreaming, isDestructiveCommand, isLongRunningCommand,
+  resolveCommandCwd, verifyInstall,
+} from './shell';
 import { runComputerAction, validateComputerAction, isComputerControlEnabled, type ComputerActionParams } from './computerControl';
 import {
   runBrowserAction, validateBrowserAction, isBrowserControlEnabled,
@@ -24,22 +25,14 @@ import {
   type BrowserActionParams, type RunService,
 } from './browserControl';
 import { watchers, describeCondition, type WatchCondition, type WatchResult } from './watchers';
+import { saveArtifact, listArtifacts, readArtifact, artifactContent, type ArtifactKind } from './artifacts';
 import { getSetting } from '../../db/index';
 import { supportsVision } from '../../models/capabilities';
 import { resolveModelVision } from '../../models/ollama';
 import { getGitStatus, getGitDiff, gitAdd, gitCommit, gitLog } from './git';
-import { 
-  createSpec, 
-  readSpec, 
-  listSpecs, 
-  updateSpec, 
-  addTaskToSpec,
-  updateTaskStatus,
-  getNextTask,
-  setSpecDesign,
-  approveSpecPhase,
-  addSubTasks,
-} from './specs';
+// Specs are plain markdown files the agent reads and edits with the ordinary
+// filesystem tools — there are deliberately no spec tools to import. See
+// specs.ts for why the ten that used to live here were removed.
 import { configParser, type ConfigFormat } from '../../utils/configParser';
 import { gatherContext } from './contextGatherer';
 import {
@@ -138,14 +131,28 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
-    name: 'search_in_files',
-    description: 'Search for a text pattern across files in the workspace. Returns matching lines with file and line numbers.',
+    name: 'search',
+    description:
+      'Find things by text — THE search tool. Searches file CONTENTS by default, or file PATHS with target:"filenames".\n' +
+      'Literal by default: characters like ( ) [ ] . * + ? match themselves, so you can paste a line of code straight in. Pass regex:true for a pattern (^import, function\\s+\\w+).\n' +
+      'Case is SMART by default: an all-lowercase query matches any case; a query containing a capital is case-sensitive. Override with case_sensitive.\n' +
+      'Results are grouped by file and report how many matches exist in total, so you can tell whether you are seeing everything.\n' +
+      'Narrow with include/exclude globs — these match the FULL path from the workspace root, so nested files need "**/" (use "**/*.ts", not "*.ts").\n' +
+      'Use mode:"count" first on a broad query to see where matches are concentrated, then mode:"content" on the interesting directory. For a code SYMBOL, prefer find_symbol / find_references, which understand declarations and call sites.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Text to search for (case-insensitive)' },
-        path: { type: 'string', description: 'Subdirectory to search in. Defaults to workspace root.' },
-        file_pattern: { type: 'string', description: 'Optional file name pattern to filter (e.g. ".ts", ".py")' },
+        query: { type: 'string', description: 'What to look for. Literal text unless regex:true.' },
+        target: { type: 'string', enum: ['content', 'filenames'], description: '"content" (default) searches inside files; "filenames" searches paths — use it to locate a file whose name you half-remember.' },
+        mode: { type: 'string', enum: ['content', 'files', 'count'], description: '"content" (default) returns matching lines; "files" returns just the file list; "count" returns per-file match counts — the cheapest way to survey a broad query.' },
+        regex: { type: 'boolean', description: 'Treat the query as a regular expression (default false).' },
+        whole_word: { type: 'boolean', description: 'Only match whole words, so "use" does not match "user" (default false).' },
+        case_sensitive: { type: 'boolean', description: 'Force case sensitivity. Omit for smart case.' },
+        path: { type: 'string', description: 'Subdirectory to search in. Defaults to the workspace root.' },
+        include: { type: 'string', description: 'Only search files matching this glob, e.g. "**/*.ts".' },
+        exclude: { type: 'string', description: 'Skip files matching this glob, e.g. "**/*.test.ts".' },
+        context_lines: { type: 'number', description: 'Lines of surrounding context per match (0-5). Use 2-3 when you need to understand the match, 0 when you just need locations.' },
+        max_results: { type: 'number', description: 'How many matches to show (default 60, max 500). The reported total is always the real one.' },
       },
       required: ['query'],
     },
@@ -168,6 +175,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       type: 'object',
       properties: {
         command: { type: 'string', description: 'Shell command to run' },
+        cwd: { type: 'string', description: 'Directory to run in, RELATIVE to the workspace root (e.g. "frontend"). Strongly preferred over chaining `cd x; ...` into the command — especially for installs, which must run where the package.json is. Omit for the workspace root.' },
         timeout_ms: { type: 'number', description: 'Timeout in milliseconds. Omit it — the default is chosen from the command (10 min for installs/scaffolds, 5 min for builds and test suites, 60s otherwise). Only set it when you know better.' },
         foreground: { type: 'boolean', description: 'Force foreground execution even if the command looks long-running (default false).' },
       },
@@ -216,172 +224,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       properties: {
         n: { type: 'number', description: 'Number of recent commits to show (default 10)' },
       },
-    },
-  },
-  {
-    name: 'create_spec',
-    description: 'Create a new spec (feature, bugfix, refactor, or research) with requirements AND tasks. Always include tasks when creating a spec so they can be tracked and executed. Requirements are automatically converted into testable EARS-style acceptance properties. For best results, provide rich tasks (with target files and acceptance criteria) via the "task_details" parameter.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string', description: 'Title of the spec' },
-        type: {
-          type: 'string',
-          enum: ['feature', 'bugfix', 'refactor', 'research'],
-          description: 'Type of spec',
-        },
-        requirements: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'List of requirements or acceptance criteria. Each becomes a testable EARS property.',
-        },
-        tasks: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Simple ordered list of task titles. Use this OR task_details, not both.',
-        },
-        task_details: {
-          type: 'array',
-          description: 'Rich ordered tasks. Preferred over "tasks". Each task can declare target files, dependencies, satisfied properties, and a concrete acceptance criterion.',
-          items: {
-            type: 'object',
-            properties: {
-              title: { type: 'string', description: 'Task title (a single implementable unit)' },
-              target_files: { type: 'array', items: { type: 'string' }, description: 'Files this task will create or modify (relative paths)' },
-              depends_on: { type: 'array', items: { type: 'string' }, description: 'Titles of tasks that must finish first (matched loosely)' },
-              acceptance: { type: 'string', description: 'Concrete, checkable definition of done' },
-            },
-            required: ['title'],
-          },
-        },
-        notes: { type: 'string', description: 'Optional additional notes' },
-        staged: { type: 'boolean', description: 'When true, use the staged three-document workflow: the spec starts at the requirements phase and you must get user approval before authoring design, then tasks. Do NOT pass tasks when staged — add them after the design is approved. Strongly preferred for non-trivial features.' },
-        start_phase: { type: 'string', description: 'Staged start point: "requirements" (default) or "design" for a user-chosen design-first flow. Only meaningful when staged is true.' },
-      },
-      required: ['title', 'type', 'requirements'],
-    },
-  },
-  {
-    name: 'read_spec',
-    description: 'Read an existing spec by its ID.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        spec_id: { type: 'string', description: 'Spec ID to read' },
-      },
-      required: ['spec_id'],
-    },
-  },
-  {
-    name: 'list_specs',
-    description: 'List all specs in the current workspace.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-    },
-  },
-  {
-    name: 'update_spec_status',
-    description: 'Update the status of a spec.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        spec_id: { type: 'string', description: 'Spec ID' },
-        status: {
-          type: 'string',
-          enum: ['draft', 'in_progress', 'done', 'cancelled'],
-          description: 'New status',
-        },
-      },
-      required: ['spec_id', 'status'],
-    },
-  },
-  {
-    name: 'add_spec_task',
-    description: 'Add a task to an existing spec.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        spec_id: { type: 'string', description: 'Spec ID' },
-        task_title: { type: 'string', description: 'Task title' },
-      },
-      required: ['spec_id', 'task_title'],
-    },
-  },
-  {
-    name: 'update_task_status',
-    description: 'Update the status of a specific task in a spec. Use this to mark tasks as in_progress or done as you work on them.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        spec_id: { type: 'string', description: 'Spec ID' },
-        task_id: { type: 'string', description: 'Task ID' },
-        status: {
-          type: 'string',
-          enum: ['todo', 'in_progress', 'done'],
-          description: 'New task status',
-        },
-      },
-      required: ['spec_id', 'task_id', 'status'],
-    },
-  },
-  {
-    name: 'get_next_task',
-    description: 'Get the next task to execute from a spec (first task with status "todo"). Use this in Spec Session threads to know what to work on next.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        spec_id: { type: 'string', description: 'Spec ID' },
-      },
-      required: ['spec_id'],
-    },
-  },
-  {
-    name: 'set_spec_design',
-    description: 'Save the design document for a spec programmatically. NOTE: in a normal Spec Session you do NOT need this — just WRITE the design as markdown in your reply and it is captured automatically. Only use this tool if you specifically need to set/replace the design text directly. Requires that requirements were approved first.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        spec_id: { type: 'string', description: 'Spec ID' },
-        design: { type: 'string', description: 'The full design document in markdown.' },
-      },
-      required: ['spec_id', 'design'],
-    },
-  },
-  {
-    name: 'approve_spec_phase',
-    description: 'Record the USER\'s approval of the current spec phase and advance to the next (requirements → design → tasks → ready). Only call this AFTER you have presented the document for that phase and the user has explicitly approved it. Never approve on the user\'s behalf. Returns the next phase you may author.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        spec_id: { type: 'string', description: 'Spec ID' },
-        phase: { type: 'string', enum: ['requirements', 'design', 'tasks'], description: 'The phase the user just approved' },
-      },
-      required: ['spec_id', 'phase'],
-    },
-  },
-  {
-    name: 'add_sub_tasks',
-    description: 'Break a task into smaller ordered sub-tasks. Use when a task is too big to implement and verify as one unit. Each sub-task should be independently checkable.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        spec_id: { type: 'string', description: 'Spec ID' },
-        task_id: { type: 'string', description: 'The parent task ID' },
-        sub_tasks: {
-          type: 'array',
-          description: 'Ordered sub-tasks',
-          items: {
-            type: 'object',
-            properties: {
-              title: { type: 'string', description: 'Sub-task title' },
-              acceptance: { type: 'string', description: 'Concrete definition of done' },
-            },
-            required: ['title'],
-          },
-        },
-      },
-      required: ['spec_id', 'task_id', 'sub_tasks'],
     },
   },
   {
@@ -439,7 +281,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'find_symbol',
-    description: 'Find where a function, class, interface, type, or method is DECLARED by name. Returns file path, line number, and signature. Use this instead of grepping when you know the name of something. Much more precise than search_in_files.',
+    description: 'Find where a function, class, interface, type, or method is DECLARED by name. Returns file path, line number, and signature. Use this instead of grepping when you know the name of something. Much more precise than a text search.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -504,6 +346,37 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
       },
       required: ['steps'],
+    },
+  },
+  {
+    name: 'artifact',
+    description:
+      'Author a standalone DOCUMENT for the user — a plan, a report, a summary, a generated page, a diagram, a self-contained snippet — instead of dumping it into the chat.\n' +
+      'It gets a title, a stable id and a version history, appears as a card in the conversation, and opens full-size in the Artifacts panel.\n' +
+      'USE IT when your output is a deliverable the user will want to re-read, keep, or compare against a later version, and is longer than a few lines.\n' +
+      'DO NOT use it for: conversational answers (just say them), or files the project actually needs (use write_file — an artifact is not a project file; the user chooses whether to save it into the workspace).\n' +
+      'To revise, call it again with the SAME id: that adds a version rather than replacing the old one, so nothing is lost. Always send the complete new content — versions are whole documents, not patches.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['write', 'list', 'read'],
+          description: '"write" (default) creates the document or adds a version to it. "list" shows what already exists. "read" returns one document\'s current content.',
+        },
+        id: { type: 'string', description: 'Stable slug identifying the document, e.g. "auth-migration-plan". Reuse it to revise; a new id makes a new document.' },
+        title: { type: 'string', description: 'Human-readable title shown on the card and in the panel.' },
+        kind: {
+          type: 'string',
+          enum: ['markdown', 'html', 'code', 'svg', 'mermaid', 'json'],
+          description: 'How to render it. markdown for prose/plans/reports (default), html for a self-contained page, code for a snippet (set language too), svg/mermaid for diagrams, json for structured data.',
+        },
+        language: { type: 'string', description: 'For kind "code": the language, e.g. "typescript".' },
+        content: { type: 'string', description: 'The COMPLETE document. On a revision this replaces the previous version wholesale.' },
+        note: { type: 'string', description: 'One line on what changed in this version. Shown in the version history.' },
+        version: { type: 'number', description: 'For "read": a specific version. Defaults to the latest.' },
+      },
+      required: ['action'],
     },
   },
   {
@@ -572,41 +445,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
-    name: 'grep_search',
-    description: 'Search file contents with a REGEX pattern (Rust/JS-style). Returns file:line matches with optional surrounding context. Much more powerful than search_in_files: supports anchors (^import), quantifiers (function\\s+\\w+), case sensitivity, include/exclude globs, and context lines. Use this to find code by pattern.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        pattern: { type: 'string', description: 'Regex pattern to search for' },
-        path: { type: 'string', description: 'Subdirectory to search in (default workspace root)' },
-        include: { type: 'string', description: 'Glob of files to include, e.g. "**/*.ts"' },
-        exclude: { type: 'string', description: 'Glob of files to exclude, e.g. "**/*.test.ts"' },
-        case_sensitive: { type: 'boolean', description: 'Case-sensitive match (default false)' },
-        context_lines: { type: 'number', description: 'Lines of context around each match (0-5)' },
-        max_results: { type: 'number', description: 'Max matches to return (default 100)' },
-      },
-      required: ['pattern'],
-    },
-  },
-  {
-    name: 'find_files',
-    description: 'Fuzzy-find files by name/path when you know roughly what the file is called but not its exact location (e.g. "scraper" or "userModel"). Returns ranked relative paths.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Fuzzy filename/path query' },
-        limit: { type: 'number', description: 'Max results (default 20)' },
-      },
-      required: ['query'],
-    },
-  },
-  {
     name: 'run_background',
     description: 'Start a LONG-RUNNING command (dev server, test watcher, build) as a background process and return immediately with a process id. Use this for anything that does not exit on its own — NOT run_command (which is one-shot and times out). After starting, use get_process_output to read its logs and stop_process to terminate it.',
     inputSchema: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'The command to run in the background (e.g. "npm run dev", "uvicorn main:app")' },
+        cwd: { type: 'string', description: 'Directory to run in, RELATIVE to the workspace root (e.g. "frontend"). Preferred over chaining `cd x; ...`. Omit for the workspace root.' },
       },
       required: ['command'],
     },
@@ -714,7 +559,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           enum: ['process_exit', 'output_match', 'url_live', 'port_open', 'file_exists'],
           description: 'What to wait for. process_exit = a run_background command finishes. output_match = a regex appears in its output (best for dev servers that never exit, e.g. "compiled successfully"). url_live = an HTTP URL responds. port_open = a TCP port accepts connections. file_exists = a path appears.',
         },
-        process_id: { type: 'string', description: 'For process_exit / output_match: the id from run_background.' },
+        process_id: {
+          type: 'string',
+          description:
+            'The run_background id. REQUIRED for process_exit / output_match. Also pass it for url_live / port_open / file_exists whenever you know which command is supposed to satisfy the condition — the watcher then observes that command too, and tells you the moment it dies instead of polling a port it will never open until the timeout. Without it, a single running background process is bound automatically; with two or more, none is.',
+        },
         pattern: { type: 'string', description: 'For output_match: a regex, case-insensitive. e.g. "ready in|compiled successfully|listening on".' },
         url: { type: 'string', description: 'For url_live: e.g. "http://localhost:5173".' },
         port: { type: 'number', description: 'For port_open: e.g. 5173.' },
@@ -1122,7 +971,10 @@ export async function executeTool(
   /** Aborted when the user presses Stop. Tools that WAIT (rather than compute)
    *  must honour it — without this, an in-flight tool call kept running after
    *  Stop and the session appeared frozen until its own timeout expired. */
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Which thread this call belongs to. A detached `watch` needs it so the
+   *  watcher can wake that exact thread when it settles. */
+  ctx?: { sessionId?: string }
 ): Promise<ToolExecutionResult> {
   // Clean up tool name - Ollama sometimes prefixes with "function:"
   const cleanToolName = toolName.replace(/^function:/, '');
@@ -1237,37 +1089,10 @@ export async function executeTool(
         break;
       }
 
-      case 'grep_search': {
-        const r = regexSearchInFiles(workspacePath, String(args.pattern), {
-          searchPath: args.path ? String(args.path) : undefined,
-          includeGlob: args.include ? String(args.include) : undefined,
-          excludeGlob: args.exclude ? String(args.exclude) : undefined,
-          caseSensitive: args.case_sensitive === true,
-          contextLines: args.context_lines ? Number(args.context_lines) : 0,
-          maxResults: args.max_results ? Number(args.max_results) : 100,
-        });
-        if (r.error) {
-          result = { result: r.error };
-        } else if (r.matches.length === 0) {
-          result = { result: `No matches for /${args.pattern}/.` };
-        } else {
-          const body = r.matches
-            .map((m) => (m.context ? `${m.file}:${m.line}\n${m.context}` : `${m.file}:${m.line}: ${m.text}`))
-            .join(r.matches[0].context ? '\n\n' : '\n');
-          result = { result: body + (r.truncated ? '\n\n[truncated: too many matches — narrow your pattern]' : '') };
-        }
-        toolLogger.debug('Regex search', { pattern: args.pattern, matches: r.matches.length });
-        break;
-      }
-
-      case 'find_files': {
-        const hits = fuzzyFileSearch(workspacePath, String(args.query), args.limit ? Number(args.limit) : 20);
-        result = { result: hits.length > 0 ? hits.map((h) => h.path).join('\n') : `No files matching "${args.query}".` };
-        break;
-      }
-
       case 'run_background': {
-        const r = backgroundProcesses.start(String(args.command), workspacePath, (url) => {
+        const bgCwd = resolveCommandCwd(workspacePath, args.cwd != null ? String(args.cwd) : undefined);
+        if (!bgCwd.ok) { result = { result: `FAILED: ${bgCwd.error}` }; break; }
+        const r = backgroundProcesses.start(String(args.command), bgCwd.cwd, (url) => {
           onEvent?.({ type: 'preview_url', content: url });
         });
         if (r.error) {
@@ -1390,12 +1215,17 @@ export async function executeTool(
 
         // action === 'wait' — build the condition from the flat args.
         const kind = String(args.condition ?? '');
+        // process_id is meaningful for EVERY condition, not just the two that
+        // require it: on a polled condition it binds the watcher to the command
+        // that owes it, so a crashed dev server is reported in seconds rather
+        // than as a timeout minutes later.
+        const boundProcess = args.process_id ? String(args.process_id) : undefined;
         const condition: WatchCondition | null =
           kind === 'process_exit' ? { kind: 'process_exit', processId: String(args.process_id ?? '') }
           : kind === 'output_match' ? { kind: 'output_match', processId: String(args.process_id ?? ''), pattern: String(args.pattern ?? '') }
-          : kind === 'url_live' ? { kind: 'url_live', url: String(args.url ?? '') }
-          : kind === 'port_open' ? { kind: 'port_open', port: Number(args.port) }
-          : kind === 'file_exists' ? { kind: 'file_exists', path: path.resolve(workspacePath, String(args.path ?? '')) }
+          : kind === 'url_live' ? { kind: 'url_live', url: String(args.url ?? ''), processId: boundProcess }
+          : kind === 'port_open' ? { kind: 'port_open', port: Number(args.port), processId: boundProcess }
+          : kind === 'file_exists' ? { kind: 'file_exists', path: path.resolve(workspacePath, String(args.path ?? '')), processId: boundProcess }
           : null;
         if (!condition) {
           result = { result: `FAILED: unknown condition "${kind}". Use one of: process_exit, output_match, url_live, port_open, file_exists.` };
@@ -1413,13 +1243,19 @@ export async function executeTool(
 
         const created = watchers.create(condition, {
           timeoutMs: detached ? requestedMs : Math.min(requestedMs ?? BLOCKING_WATCH_CAP_MS, BLOCKING_WATCH_CAP_MS),
+          // Binding the watcher to its thread is what makes the promise below
+          // ("you'll be resumed") literally true rather than aspirational.
+          sessionId: ctx?.sessionId,
+          detached,
         });
         if (!created.ok) { result = { result: `FAILED: ${created.error}` }; break; }
 
         if (detached) {
           result = { result:
             `Watcher ${created.id} is running in the background (${describeCondition(condition)}).\n` +
-            `Do NOT wait for it — finish what you can and end your turn. You'll be resumed with the result when it settles.` };
+            `Do NOT wait for it — finish what you can and END YOUR TURN NOW. When it settles, this thread is ` +
+            `automatically started again with the result, so stopping is genuinely free: you lose nothing by ` +
+            `handing control back to the user in the meantime.` };
           break;
         }
 
@@ -1643,24 +1479,42 @@ export async function executeTool(
         break;
       }
 
-      case 'search_in_files': {
-        const matches = searchInFiles(
-          workspacePath,
-          String(args.query),
-          String(args.path ?? '.'),
-          args.file_pattern ? String(args.file_pattern) : undefined
-        );
-        if (matches.length === 0) {
-          result = { result: 'No matches found.' };
-        } else {
-          const formatted = matches
-            .map((m) => `${m.file}:${m.line}: ${m.content}`)
-            .join('\n');
-          result = { result: formatted };
-        }
-        toolLogger.debug('Search completed', { 
-          query: args.query, 
-          matchCount: matches.length 
+      // `search` replaced search_in_files, grep_search and find_files. The old
+      // names are still accepted so a thread mid-conversation (or a model going
+      // from memory) doesn't hit "unknown tool"; their arguments are mapped onto
+      // the new shape rather than being rejected.
+      case 'search':
+      case 'search_in_files':
+      case 'grep_search':
+      case 'find_files': {
+        const legacyGrep = cleanToolName === 'grep_search';
+        const legacyFind = cleanToolName === 'find_files';
+        const searchOpts: SearchOptions = {
+          query: String(args.query ?? args.pattern ?? ''),
+          target: legacyFind ? 'filenames' : (args.target === 'filenames' ? 'filenames' : 'content'),
+          mode: args.mode === 'files' || args.mode === 'count' ? args.mode : 'content',
+          // grep_search was regex by definition; `search` is literal unless asked.
+          regex: legacyGrep ? true : args.regex === true,
+          wholeWord: args.whole_word === true,
+          caseSensitive: typeof args.case_sensitive === 'boolean' ? args.case_sensitive : undefined,
+          searchPath: args.path ? String(args.path) : undefined,
+          // search_in_files' `file_pattern` was a bare extension like ".ts".
+          include: args.include ? String(args.include)
+            : args.file_pattern ? `**/*${String(args.file_pattern).replace(/^\*+/, '')}`
+            : undefined,
+          exclude: args.exclude ? String(args.exclude) : undefined,
+          contextLines: args.context_lines != null ? Number(args.context_lines) : 0,
+          maxResults: args.max_results != null ? Number(args.max_results)
+            : args.limit != null ? Number(args.limit)
+            : undefined,
+        };
+        const outcome = runSearch(workspacePath, searchOpts);
+        result = { result: formatSearchOutcome(searchOpts, outcome) };
+        toolLogger.debug('Search completed', {
+          tool: cleanToolName,
+          query: searchOpts.query,
+          totalHits: outcome.totalHits,
+          filesScanned: outcome.filesScanned,
         });
         break;
       }
@@ -1682,6 +1536,17 @@ export async function executeTool(
       case 'run_command': {
         const command = String(args.command);
         const commandId = `cmd_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const relativeCwd = args.cwd != null ? String(args.cwd) : undefined;
+
+        // Resolve (and validate) the working directory ONCE, up front. Both the
+        // background hand-off and the foreground run need it, and a bad cwd must
+        // fail loudly here rather than silently defaulting to the workspace root
+        // — an install that runs in the wrong folder reports success and writes
+        // its node_modules where nothing will ever look for it.
+        const cwdCheck = resolveCommandCwd(workspacePath, relativeCwd);
+        if (!cwdCheck.ok) {
+          return { result: `FAILED: ${cwdCheck.error}` };
+        }
 
         // Guard against the classic hang: if the model routes a dev server /
         // watcher / daemon through the one-shot path, it would block until the
@@ -1691,8 +1556,8 @@ export async function executeTool(
         // foreground:true for the rare case it truly wants to await one.
         const forceForeground = args.foreground === true;
         if (!forceForeground && isLongRunningCommand(command)) {
-          toolLogger.info('Long-running command detected — routing to background', { command, commandId });
-          const r = backgroundProcesses.start(command, workspacePath);
+          toolLogger.info('Long-running command detected — routing to background', { command, commandId, cwd: cwdCheck.cwd });
+          const r = backgroundProcesses.start(command, cwdCheck.cwd);
           if (r.error) {
             return { result: `Failed to start background process: ${r.error}` };
           }
@@ -1742,9 +1607,12 @@ export async function executeTool(
                 });
               },
             },
-            // No hardcoded default: shell.ts sizes the budget from the command
-            // itself (an install/scaffold gets minutes, not 30s).
-            args.timeout_ms != null ? Number(args.timeout_ms) : undefined
+            {
+              // No hardcoded default: shell.ts sizes the budget from the command
+              // itself (an install/scaffold gets minutes, not 30s).
+              timeoutMs: args.timeout_ms != null ? Number(args.timeout_ms) : undefined,
+              cwd: relativeCwd,
+            }
           );
 
           // stderr is clamped less aggressively than stdout: when a command
@@ -1753,6 +1621,12 @@ export async function executeTool(
           if (result.stdout) out += `stdout:\n${clampOutput(result.stdout)}\n`;
           if (result.stderr) out += `stderr:\n${clampOutput(result.stderr)}\n`;
           out += `exit code: ${result.exitCode}`;
+
+          // An install's exit code is not proof it landed. Check the filesystem
+          // and say so plainly — a partial node_modules is the failure mode the
+          // agent otherwise discovers much later, as an unresolvable import.
+          const installNote = verifyInstall(command, cwdCheck.cwd, result.exitCode);
+          if (installNote) out += `\n\n${installNote}`;
 
           toolLogger.info('Shell command completed (streaming)', { 
             command, 
@@ -1768,13 +1642,19 @@ export async function executeTool(
           const { stdout, stderr, exitCode } = runShell(
             command,
             workspacePath,
-            args.timeout_ms != null ? Number(args.timeout_ms) : undefined
+            {
+              timeoutMs: args.timeout_ms != null ? Number(args.timeout_ms) : undefined,
+              cwd: relativeCwd,
+            }
           );
           let out = '';
           if (stdout) out += `stdout:\n${clampOutput(stdout)}\n`;
           if (stderr) out += `stderr:\n${clampOutput(stderr)}\n`;
           out += `exit code: ${exitCode}`;
-          
+
+          const installNote = verifyInstall(command, cwdCheck.cwd, exitCode);
+          if (installNote) out += `\n\n${installNote}`;
+
           toolLogger.info('Shell command completed', { 
             command, 
             exitCode,
@@ -1820,333 +1700,6 @@ export async function executeTool(
         break;
       }
 
-      case 'create_spec': {
-        const spec = createSpec(workspacePath, {
-          title: String(args.title),
-          type: (args.type as 'feature' | 'bugfix' | 'refactor' | 'research') ?? 'feature',
-          requirements: args.requirements,
-          notes: args.notes ? String(args.notes) : undefined,
-          staged: args.staged === true || args.staged === 'true',
-          startPhase: args.start_phase === 'design' ? 'design' : undefined,
-        });
-
-        // STAGED WORKFLOW: when staged, the spec begins at the requirements
-        // phase and tasks are NOT created up front. The agent presents
-        // requirements, gets approval, authors design, gets approval, THEN adds
-        // tasks. So if staged, ignore any tasks passed in this call.
-        const staged = spec.phase === 'requirements';
-        if (staged) {
-          const propList = (spec.properties ?? []).map((p) => `  - ${p.id}: ${p.statement}`).join('\n');
-          result = {
-            result: `Spec created (staged): ${spec.id} — "${spec.title}"\nPhase: requirements\n\nAcceptance properties (${(spec.properties ?? []).length}):\n${propList || '  (none)'}\n\nNEXT: Present these requirements to the user for review. When they approve, call approve_spec_phase("${spec.id}", "requirements"), then author the design with set_spec_design. Do NOT create tasks yet.`,
-            spec,
-          };
-          toolLogger.info('Staged spec created (requirements phase)', { specId: spec.id, title: spec.title });
-          break;
-        }
-
-        // Rich task details take precedence; fall back to simple titles.
-        const richTasks = (args.task_details as Array<{
-          title: string;
-          target_files?: string[];
-          depends_on?: string[];
-          acceptance?: string;
-        }>) ?? [];
-        const taskTitles = (args.tasks as string[]) ?? [];
-
-        let updatedSpec = spec;
-
-        if (richTasks.length > 0) {
-          // First pass: create tasks (so we can resolve depends_on titles → ids).
-          const titleToId = new Map<string, string>();
-          for (const rt of richTasks) {
-            const s = addTaskToSpec(workspacePath, spec.id, rt.title, {
-              targetFiles: rt.target_files,
-              acceptance: rt.acceptance,
-            });
-            if (s) {
-              updatedSpec = s;
-              const created = s.tasks[s.tasks.length - 1];
-              if (created) titleToId.set(rt.title.toLowerCase(), created.id);
-            }
-          }
-          // Second pass: resolve dependencies by matching titles loosely.
-          const withDeps = updatedSpec.tasks.map((t) => {
-            const rt = richTasks.find((r) => r.title.toLowerCase() === t.title.toLowerCase());
-            if (rt?.depends_on && rt.depends_on.length > 0) {
-              const depIds = rt.depends_on
-                .map((d) => {
-                  const exact = titleToId.get(d.toLowerCase());
-                  if (exact) return exact;
-                  const fuzzy = updatedSpec.tasks.find(
-                    (x) => x.title.toLowerCase().includes(d.toLowerCase()) || d.toLowerCase().includes(x.title.toLowerCase())
-                  );
-                  return fuzzy?.id;
-                })
-                .filter((x): x is string => !!x && x !== t.id);
-              return { ...t, dependsOn: depIds.length > 0 ? depIds : undefined };
-            }
-            return t;
-          });
-          const s = updateSpec(workspacePath, spec.id, { tasks: withDeps, status: 'in_progress' });
-          if (s) updatedSpec = s;
-        } else if (taskTitles.length > 0) {
-          for (const taskTitle of taskTitles) {
-            const s = addTaskToSpec(workspacePath, spec.id, taskTitle);
-            if (s) updatedSpec = s;
-          }
-          const s = updateSpec(workspacePath, spec.id, { status: 'in_progress' });
-          if (s) updatedSpec = s;
-        }
-
-        const taskList = updatedSpec.tasks.map((t, i) => {
-          const deps = t.dependsOn && t.dependsOn.length > 0 ? ` (after ${t.dependsOn.join(', ')})` : '';
-          const files = t.targetFiles && t.targetFiles.length > 0 ? ` → ${t.targetFiles.join(', ')}` : '';
-          return `  ${i + 1}. [${t.id}] ${t.title}${files}${deps}`;
-        }).join('\n');
-        const propList = (updatedSpec.properties ?? []).map((p) => `  - ${p.id}: ${p.statement}`).join('\n');
-        result = {
-          result: `Spec created: ${updatedSpec.id} — "${updatedSpec.title}"\n\nAcceptance properties (${(updatedSpec.properties ?? []).length}):\n${propList || '  (none)'}\n\nTasks (${updatedSpec.tasks.length}):\n${taskList}\n\nUse get_next_task("${updatedSpec.id}") to start executing.`,
-          spec: updatedSpec,
-        };
-        toolLogger.info('Spec created with tasks', { specId: updatedSpec.id, title: updatedSpec.title, taskCount: updatedSpec.tasks.length, propertyCount: (updatedSpec.properties ?? []).length });
-        break;
-      }
-
-      case 'read_spec': {
-        const spec = readSpec(workspacePath, String(args.spec_id));
-        if (!spec) {
-          result = { result: `Spec not found: ${args.spec_id}` };
-        } else {
-          result = { result: JSON.stringify(spec, null, 2), spec };
-        }
-        break;
-      }
-
-      case 'list_specs': {
-        const specs = listSpecs(workspacePath);
-        if (specs.length === 0) {
-          result = { result: 'No specs found.' };
-        } else {
-          const summary = specs.map((s) => `[${s.status}] ${s.id}: ${s.title}`).join('\n');
-          result = { result: summary };
-        }
-        break;
-      }
-
-      case 'update_spec_status': {
-        const spec = updateSpec(workspacePath, String(args.spec_id), {
-          status: args.status as 'draft' | 'in_progress' | 'done' | 'cancelled',
-        });
-        if (!spec) {
-          result = { result: `Spec not found: ${args.spec_id}` };
-        } else {
-          result = { result: `Spec status updated: ${spec.id} → ${spec.status}`, spec };
-          toolLogger.info('Spec status updated', { 
-            specId: spec.id, 
-            status: spec.status 
-          });
-        }
-        break;
-      }
-
-      case 'add_spec_task': {
-        const spec = addTaskToSpec(workspacePath, String(args.spec_id), String(args.task_title));
-        if (!spec) {
-          result = { result: `Spec not found: ${args.spec_id}` };
-        } else {
-          result = { result: `Task added to spec ${spec.id}: "${args.task_title}"`, spec };
-          toolLogger.info('Task added to spec', { 
-            specId: spec.id, 
-            taskTitle: args.task_title 
-          });
-        }
-        break;
-      }
-
-      case 'update_task_status': {
-        let specIdForUpdate = String(args.spec_id);
-        let taskIdForUpdate = String(args.task_id);
-        
-        // Try exact match first
-        let specForUpdate = readSpec(workspacePath, specIdForUpdate);
-        
-        // If not found, try to find spec by partial ID match
-        if (!specForUpdate) {
-          const allSpecs = listSpecs(workspacePath);
-          const partialMatch = allSpecs.find(s => 
-            s.id.includes(specIdForUpdate) || specIdForUpdate.includes(s.id)
-          );
-          if (partialMatch) {
-            specForUpdate = partialMatch;
-            specIdForUpdate = partialMatch.id;
-            toolLogger.info('Resolved partial spec_id', { original: args.spec_id, resolved: specIdForUpdate });
-          }
-        }
-        
-        if (!specForUpdate) {
-          result = { result: `Spec not found: ${args.spec_id}. Use list_specs to see available specs.` };
-          break;
-        }
-        
-        // Try exact task_id match first
-        let taskMatch = specForUpdate.tasks.find(t => t.id === taskIdForUpdate);
-        
-        // If not found, try partial task_id match
-        if (!taskMatch) {
-          taskMatch = specForUpdate.tasks.find(t => 
-            t.id.includes(taskIdForUpdate) || taskIdForUpdate.includes(t.id)
-          );
-          if (taskMatch) {
-            taskIdForUpdate = taskMatch.id;
-            toolLogger.info('Resolved partial task_id', { original: args.task_id, resolved: taskIdForUpdate });
-          }
-        }
-        
-        if (!taskMatch) {
-          // Show available tasks to help the model
-          const taskList = specForUpdate.tasks.map(t => `  - ${t.id}: ${t.title} (${t.status})`).join('\n');
-          result = { result: `Task not found: ${args.task_id} in spec ${specIdForUpdate}.\n\nAvailable tasks:\n${taskList}` };
-          break;
-        }
-        
-        // Enforce a single in-progress task, but NEVER mark another task 'done'
-        // without verification. If the model starts a new task while another is
-        // in_progress, revert the old one to 'todo' (clearly unfinished) rather
-        // than silently (and falsely) completing it.
-        if (args.status === 'in_progress') {
-          for (const other of specForUpdate.tasks) {
-            if (other.id !== taskIdForUpdate && other.status === 'in_progress') {
-              updateTaskStatus(workspacePath, specIdForUpdate, other.id, 'todo');
-              toolLogger.info('Reverted previously in_progress task to todo (not verified done)', {
-                specId: specIdForUpdate, taskId: other.id, taskTitle: other.title,
-              });
-            }
-          }
-        }
-
-        const updatedSpecResult = updateTaskStatus(
-          workspacePath, 
-          specIdForUpdate, 
-          taskIdForUpdate,
-          args.status as 'todo' | 'in_progress' | 'done'
-        );
-        if (!updatedSpecResult) {
-          result = { result: `Failed to update task status` };
-        } else {
-          result = { 
-            result: `Task "${taskMatch.title}" -> ${args.status}`, 
-            spec: updatedSpecResult 
-          };
-          toolLogger.info('Task status updated', { 
-            specId: specIdForUpdate, 
-            taskId: taskIdForUpdate,
-            status: args.status 
-          });
-        }
-        break;
-      }
-
-      case 'get_next_task': {
-        const specIdStr = String(args.spec_id);
-        const spec = readSpec(workspacePath, specIdStr);
-        if (!spec) {
-          result = { result: `Spec not found: ${specIdStr}` };
-          break;
-        }
-
-        // IMPORTANT: never auto-complete an in_progress task. A task is only
-        // 'done' after it is genuinely implemented AND verified. If one is
-        // already in_progress, return THAT task so work resumes on it instead
-        // of silently (and falsely) marking it complete.
-        const inProgress = spec.tasks.find((t) => t.status === 'in_progress');
-        if (inProgress) {
-          const done = spec.tasks.filter((t) => t.status === 'done').length;
-          result = {
-            result: `Task [${inProgress.id}] "${inProgress.title}" is still in progress (${done}/${spec.tasks.length} done). Finish and verify it, then mark it done with update_task_status(status="done"). Do NOT start another task until this one is verified complete.`,
-            spec,
-          };
-          break;
-        }
-
-        const nextTask = getNextTask(workspacePath, specIdStr);
-        if (!nextTask) {
-          const done = spec.tasks.filter(t => t.status === 'done').length;
-          result = { result: `All ${done} tasks complete in spec "${spec.title}". Nice work!` };
-        } else {
-          const done = spec.tasks.filter(t => t.status === 'done').length;
-          const total = spec.tasks.length;
-
-          let taskInfo = `Progress: ${done}/${total} tasks done\n\n`;
-          taskInfo += `**Next task:** [${nextTask.id}] ${nextTask.title}\n`;
-          if (nextTask.acceptance) taskInfo += `Done when: ${nextTask.acceptance}\n`;
-          if (nextTask.subTasks && nextTask.subTasks.length > 0) {
-            taskInfo += `Sub-tasks:\n` + nextTask.subTasks.map((s) => `  - [${s.status === 'done' ? 'x' : ' '}] ${s.title}`).join('\n') + '\n';
-          }
-          taskInfo += `\nTo execute this task:\n`;
-          taskInfo += `1. Call update_task_status with spec_id="${specIdStr}", task_id="${nextTask.id}", status="in_progress"\n`;
-          taskInfo += `2. Delegate the implementation with delegate_task (give the instruction, target files, and the acceptance criterion). The worker writes/edits/validates.\n`;
-          taskInfo += `3. When the worker reports done, mark it done. It will be verified before the next task starts.\n`;
-
-          result = { result: taskInfo, spec };
-          toolLogger.info('Next task retrieved', {
-            specId: specIdStr,
-            taskId: nextTask.id,
-            taskTitle: nextTask.title,
-            progress: `${done}/${total}`
-          });
-        }
-        break;
-      }
-
-      case 'set_spec_design': {
-        const r = setSpecDesign(workspacePath, String(args.spec_id), String(args.design));
-        if (!r.ok) {
-          result = { result: r.error ?? 'Failed to set design.' };
-        } else {
-          result = {
-            result: `Design saved for "${r.spec!.title}" (design.md). NEXT: present the design to the user. When they approve, call approve_spec_phase("${r.spec!.id}", "design"), then break the work into tasks with create_spec task_details or add_spec_task / add_sub_tasks.`,
-            spec: r.spec,
-          };
-          toolLogger.info('Spec design saved', { specId: r.spec!.id });
-        }
-        break;
-      }
-
-      case 'approve_spec_phase': {
-        const r = approveSpecPhase(workspacePath, String(args.spec_id), args.phase as 'requirements' | 'design' | 'tasks');
-        if (!r.ok) {
-          result = { result: r.error ?? 'Failed to approve phase.' };
-        } else if (r.alreadyAdvanced) {
-          // Redundant approval — tell the agent the truth and the real next action.
-          result = { result: r.error ?? `Already advanced to ${r.nextPhase}.`, spec: r.spec };
-          toolLogger.warn('Redundant approve_spec_phase call', { specId: String(args.spec_id), phase: args.phase, currentPhase: r.nextPhase });
-        } else {
-          const next = r.nextPhase;
-          const guidance = next === 'design'
-            ? 'Now write the design: read requirements if needed, then write the full design document directly in your reply as markdown. The app saves it automatically — do not call a tool and do not stop after only announcing it.'
-            : next === 'tasks'
-            ? 'Now break the design into concrete tasks (add_spec_task / create task_details). Use add_sub_tasks for any task that needs decomposition. When the task list is ready, present it for approval.'
-            : next === 'ready'
-            ? 'The spec is fully approved and ready to execute. Begin implementing tasks in dependency order.'
-            : '';
-          result = { result: `Approved "${args.phase}". Phase advanced to "${next}". ${guidance}`, spec: r.spec };
-          toolLogger.info('Spec phase approved', { specId: String(args.spec_id), approved: args.phase, nextPhase: next });
-        }
-        break;
-      }
-
-      case 'add_sub_tasks': {
-        const subs = (args.sub_tasks as Array<{ title: string; acceptance?: string }>) ?? [];
-        const spec = addSubTasks(workspacePath, String(args.spec_id), String(args.task_id), subs);
-        if (!spec) {
-          result = { result: `Could not add sub-tasks: spec or task not found (${args.spec_id} / ${args.task_id}).` };
-        } else {
-          result = { result: `Added ${subs.length} sub-task(s) to task ${args.task_id}.`, spec };
-          toolLogger.info('Sub-tasks added', { specId: String(args.spec_id), taskId: String(args.task_id), count: subs.length });
-        }
-        break;
-      }
 
       case 'read_config': {
         const filePath = path.join(workspacePath, String(args.path));
@@ -2324,7 +1877,7 @@ export async function executeTool(
           hits = searchSymbols(workspacePath, name);
         }
         if (hits.length === 0) {
-          result = { result: `No symbol matching "${name}" found. Try get_repo_map or search_in_files.` };
+          result = { result: `No symbol matching "${name}" found. Try get_repo_map, or search(query, target:"content").` };
         } else {
           const formatted = hits
             .slice(0, 25)
@@ -2401,6 +1954,60 @@ export async function executeTool(
         break;
       }
 
+      case 'artifact': {
+        const action = String(args.action ?? 'write');
+
+        if (action === 'list') {
+          const all = listArtifacts(workspacePath);
+          result = {
+            result: all.length === 0
+              ? 'No artifacts yet.'
+              : all.map((a) => `${a.id} — "${a.title}" (${a.kind}, v${a.version}, ${a.bytes} bytes)`).join('\n'),
+          };
+          break;
+        }
+
+        if (action === 'read') {
+          const a = readArtifact(workspacePath, String(args.id ?? ''));
+          if (!a) { result = { result: `FAILED: no artifact "${String(args.id ?? '')}". Use action "list" to see what exists.` }; break; }
+          const v = args.version != null ? Number(args.version) : undefined;
+          const body = artifactContent(a, v);
+          result = { result: body ? `"${a.title}" (${a.kind}${v ? `, v${v}` : ''}):\n\n${body}` : `FAILED: artifact "${a.id}" has no version ${v}.` };
+          break;
+        }
+
+        const saved = saveArtifact(workspacePath, {
+          id: String(args.id ?? args.title ?? ''),
+          title: args.title != null ? String(args.title) : undefined,
+          kind: args.kind as ArtifactKind | undefined,
+          language: args.language != null ? String(args.language) : undefined,
+          content: String(args.content ?? ''),
+          note: args.note != null ? String(args.note) : undefined,
+        });
+        if (!saved.ok || !saved.artifact) { result = { result: `FAILED: ${saved.error}` }; break; }
+
+        const a = saved.artifact;
+        const latest = a.versions[a.versions.length - 1];
+        // The card in the chat and the panel both come from this event. Sending
+        // the content along means the panel can render immediately without a
+        // round-trip back to the API for something we already have in hand.
+        onEvent?.({
+          type: 'artifact',
+          content: JSON.stringify({
+            id: a.id, title: a.title, kind: a.kind, language: a.language,
+            version: latest.version, versionCount: a.versions.length,
+            note: latest.note, body: latest.content, updatedAt: a.updatedAt,
+          }),
+        });
+        result = {
+          result: saved.created
+            ? `Created artifact "${a.title}" (${a.id}, ${a.kind}). It's shown in the chat and in the Artifacts panel — don't repeat its contents in your reply.`
+            : `Updated artifact "${a.title}" (${a.id}) to v${latest.version}. The user can compare it against earlier versions in the Artifacts panel.`,
+        };
+        toolLogger.info('Artifact written', { id: a.id, version: latest.version, created: saved.created });
+        break;
+      }
+
       case 'ask_user': {
         // The actual pause/wait is handled in the orchestrator (it has the WS
         // approval channel). Here we just format the question; the orchestrator
@@ -2441,9 +2048,9 @@ export async function executeTool(
         const suggestion = corrections[cleanName] || corrections[toolName];
         
         if (suggestion) {
-          result = { result: `Unknown tool: ${toolName}. Did you mean "${suggestion}"? Available tools: read_file, write_file, delete_file, list_directory, get_file_tree, search_in_files, create_directory, run_command, create_spec, read_spec, list_specs, add_spec_task, update_task_status, get_next_task, gather_context` };
+          result = { result: `Unknown tool: ${toolName}. Did you mean "${suggestion}"? Available tools: read_file, read_files, write_file, edit_file, delete_file, list_directory, get_file_tree, search, create_directory, run_command, run_background, watch, get_repo_map, find_symbol, find_references, gather_context` };
         } else {
-          result = { result: `Unknown tool: ${toolName}. Available tools: read_file, write_file, delete_file, list_directory, get_file_tree, search_in_files, create_directory, run_command, create_spec, read_spec, list_specs, add_spec_task, update_task_status, get_next_task, gather_context` };
+          result = { result: `Unknown tool: ${toolName}. Available tools: read_file, read_files, write_file, edit_file, delete_file, list_directory, get_file_tree, search, create_directory, run_command, run_background, watch, get_repo_map, find_symbol, find_references, gather_context` };
         }
       }
     }

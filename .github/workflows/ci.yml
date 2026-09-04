@@ -1,0 +1,49 @@
+# The checks that run on every push and pull request.
+#
+# Deliberately narrower and faster than the release workflow: this is the gate
+# people wait on, and a gate that takes fifteen minutes is a gate people learn
+# to ignore. Packaging is not built here — it is slow, it cannot fail in a way
+# the tests would not already catch, and it belongs to the release.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  check:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install
+        run: |
+          npm --prefix backend ci
+          npm --prefix frontend ci
+          npm --prefix cli ci
+
+      # Regenerated rather than trusted: themes.css is a build artefact, and a
+      # palette edited without re-running the generator would otherwise ship a
+      # stylesheet that does not match its source.
+      - name: Generate themes
+        run: node scripts/gen-themes.js
+
+      - name: Themes are up to date
+        run: git diff --exit-code frontend/src/styles/themes.css
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm --prefix backend test
+
+      # A build failure that only appears at package time is a bad surprise to
+      # get on a release tag, and the frontend build is fast enough to include.
+      - name: Build the frontend
+        run: npm --prefix frontend run build

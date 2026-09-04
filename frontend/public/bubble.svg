@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <!-- Orange gradient for bubbles -->
+    <radialGradient id="bubbleGrad" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#ffb366"/>
+      <stop offset="100%" stop-color="#ff7518"/>
+    </radialGradient>
+  </defs>
+  
+  <!-- Simple 4-bubble grid layout - 2x2 -->
+  <!-- Top left -->
+  <circle cx="16" cy="16" r="8" fill="url(#bubbleGrad)"/>
+  <circle cx="13.5" cy="13.5" r="2.5" fill="white" fill-opacity="0.4"/>
+  
+  <!-- Top right -->
+  <circle cx="32" cy="16" r="8" fill="url(#bubbleGrad)"/>
+  <circle cx="29.5" cy="13.5" r="2.5" fill="white" fill-opacity="0.4"/>
+  
+  <!-- Bottom left -->
+  <circle cx="16" cy="32" r="8" fill="url(#bubbleGrad)"/>
+  <circle cx="13.5" cy="29.5" r="2.5" fill="white" fill-opacity="0.4"/>
+  
+  <!-- Bottom right -->
+  <circle cx="32" cy="32" r="8" fill="url(#bubbleGrad)"/>
+  <circle cx="29.5" cy="29.5" r="2.5" fill="white" fill-opacity="0.4"/>
+</svg>

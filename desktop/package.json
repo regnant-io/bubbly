@@ -1,0 +1,235 @@
+{
+  "name": "bubbly-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bubbly Desktop \u2014 the native shell for the Bubbly AI coding agent",
+  "main": "main.js",
+  "author": "Bubbly",
+  "scripts": {
+    "start": "electron .",
+    "dev": "set BUBBLY_DESKTOP_DEV=1&& electron .",
+    "build:app": "node ../scripts/build-all.js && electron-builder",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "generate-icons": "node scripts/generate-icons.js",
+    "dist:win": "npm run build:all && electron-builder --win",
+    "dist:mac": "npm run build:all && electron-builder --mac",
+    "dist:linux": "npm run build:all && electron-builder --linux",
+    "build:all": "node ../scripts/build-all.js"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.2",
+    "rcedit": "^5.0.2",
+    "sharp": "^0.35.3"
+  },
+  "build": {
+    "appId": "dev.bubbly.desktop",
+    "productName": "Bubbly",
+    "afterPack": "build/after-pack.js",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist",
+        "to": "backend/dist"
+      },
+      {
+        "from": "../backend/node_modules",
+        "to": "backend/node_modules",
+        "filter": [
+          "**/*",
+          "!**/*.md",
+          "!**/*.map",
+          "!**/*.ts",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/.bin/**",
+          "!**/example/**",
+          "!**/examples/**",
+          "!**/docs/**",
+          "!**/.cache/**",
+          "!**/*.h",
+          "!**/*.cc",
+          "!**/*.o",
+          "!**/*.obj"
+        ]
+      },
+      {
+        "from": "../backend/package.json",
+        "to": "backend/package.json"
+      },
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false,
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
+      "shortcutName": "Bubbly",
+      "uninstallDisplayName": "Bubbly",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "warningsAsErrors": false
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.developer-tools",
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Folder",
+            "CFBundleTypeRole": "Editor",
+            "LSItemContentTypes": [
+              "public.folder"
+            ],
+            "LSHandlerRank": "Alternate"
+          }
+        ],
+        "NSAppleEventsUsageDescription": "Bubbly uses Apple Events to open folders you choose."
+      }
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 140,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Development",
+      "synopsis": "A local-first AI coding agent",
+      "description": "Bubbly is a local-first AI coding agent with a desktop IDE, a terminal client, and support for local, SSH and repository workspaces.",
+      "desktop": {
+        "Name": "Bubbly",
+        "Comment": "A local-first AI coding agent",
+        "Categories": "Development;IDE;",
+        "MimeType": "inode/directory;",
+        "Terminal": "false"
+      },
+      "maintainer": "Bubbly"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libsecret-1-0"
+      ],
+      "recommends": [
+        "nodejs (>= 18)",
+        "git"
+      ]
+    },
+    "rpm": {
+      "depends": [
+        "libnotify",
+        "libXScrnSaver",
+        "libsecret"
+      ]
+    }
+  }
+}

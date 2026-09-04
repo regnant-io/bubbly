@@ -1,0 +1,445 @@
+/* Animation System for Bubbly */
+/* GPU-accelerated animations with reduced motion support */
+
+/* Message appearance animation */
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 20px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.message-enter {
+  animation: slideInUp 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Approval block appearance animation */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.approval-block-enter {
+  animation: scaleIn 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Bubble loader animation */
+@keyframes bubblePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+.bubble-loader {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.bubble-loader .bubble {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  animation: bubblePulse 1.5s ease-in-out infinite;
+}
+
+.bubble-loader .bubble:nth-child(1) {
+  animation-delay: 0s;
+  background: #b58900; /* Solarized brown */
+}
+
+.bubble-loader .bubble:nth-child(2) {
+  animation-delay: 0.2s;
+  background: #cb4b16; /* Solarized orange */
+}
+
+.bubble-loader .bubble:nth-child(3) {
+  animation-delay: 0.4s;
+  background: #b58900; /* Solarized yellow */
+}
+
+/* Skeleton loader animation */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear;
+  border-radius: 4px;
+}
+
+/* File tree expand/collapse animation */
+.file-tree-item {
+  overflow: hidden;
+  transition: max-height 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.file-tree-item.collapsed {
+  max-height: 0;
+}
+
+.file-tree-item.expanded {
+  max-height: 1000px; /* Large enough for content */
+}
+
+/* Panel resize transition */
+.panel {
+  transition: width 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel.resizing {
+  transition: none; /* Disable during drag */
+}
+
+/* Tool icon pulse animation */
+@keyframes toolPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.tool-icon.active {
+  animation: toolPulse 2s ease-in-out infinite;
+}
+
+/* Fade in/out animations */
+@keyframes fadeIn {
+  from { 
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 200ms ease-out both;
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -20px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.animate-slideInDown {
+  animation: slideInDown 0.3s ease-out;
+}
+
+.fade-enter {
+  animation: fadeIn 200ms ease;
+}
+
+.fade-exit {
+  animation: fadeOut 200ms ease;
+}
+
+/* Hover effects - no transform to keep UI stable */
+.button,
+.clickable {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.button:hover,
+.clickable:hover {
+  /* No transform - stable UI */
+}
+
+.button:active,
+.clickable:active {
+  /* No transform - stable UI */
+}
+
+/* Pause animations when tab is hidden to save resources */
+body.tab-hidden * {
+  animation-play-state: paused !important;
+}
+
+/* Reduced motion support for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Shimmer sweep across the verb of a running tool block ("Reading…"). Uses a
+   moving background gradient clipped to the text; falls back gracefully. */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--text) 0%,
+    var(--text) 40%,
+    var(--primary-hover) 50%,
+    var(--text) 60%,
+    var(--text) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmerSweep 1.8s linear infinite;
+}
+
+@keyframes shimmerSweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* --- The running step's sweep --------------------------------------------
+   The collapsed header of a tool-step group says ONE thing: the step happening
+   right now. With no other movement on the row, a settled line and a working
+   line look identical — the spinner is 11px of chrome at the far left and the
+   eye does not read it as belonging to the sentence.
+
+   So the sentence itself carries the progress: a highlight crosses it left to
+   right, quickly, then rests before the next pass. It is deliberately a SWEEP
+   and not a pulse — a pulse says "waiting", a left-to-right pass says "reading
+   along", which is what the agent is in fact doing.
+
+   The pass restarts from the left whenever the step changes, because the
+   incoming SlidingLabel layer mounts fresh with a new key. That is the whole
+   effect: each new step arrives from below and is immediately swept.
+
+   Highlight only, never geometry: background-position is composited, so this
+   costs nothing and cannot move the row. */
+.step-sweep {
+  background: linear-gradient(
+    90deg,
+    var(--text-muted) 0%,
+    var(--text-muted) 44%,
+    var(--primary-hover) 50%,
+    var(--text-muted) 56%,
+    var(--text-muted) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: stepSweep 2.4s ease-in-out infinite;
+}
+
+/* 100% -> 0% travels the bright band LEFT to RIGHT (a larger position shifts
+   the oversized gradient right, which moves the band the other way). The pass
+   is over by 45% of the cycle; the rest is the rest. */
+@keyframes stepSweep {
+  0%   { background-position: 100% 0; }
+  45%  { background-position: 0% 0; }
+  100% { background-position: 0% 0; }
+}
+
+/* --- Sliding label -------------------------------------------------------
+   The headline of a COLLAPSED tool-step group, which changes each time the
+   agent starts another step ("Reading foo.ts" -> "Editing bar.ts").
+
+   Swapping the text in place made the row twitch: the browser reflowed a line
+   whose content, width and baseline all changed at once, and with a burst of
+   quick steps that reads as flickering rather than progress. So the two labels
+   are stacked in a fixed-height, overflow-hidden box and both animate at once —
+   the old one leaves upward, the new one arrives from below. The box's height
+   never changes, nothing around it moves, and the eye reads one continuous
+   ticker instead of a series of jumps. */
+.slide-label {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  /* Fixed to the line-height of the 12px text it holds. A hard height is what
+     guarantees the row cannot resize mid-swap. */
+  height: 1.05rem;
+}
+
+.slide-label__layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slide-label__layer--in {
+  animation: slideLabelIn 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.slide-label__layer--out {
+  animation: slideLabelOut 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  pointer-events: none;
+}
+
+@keyframes slideLabelIn {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes slideLabelOut {
+  from { transform: translateY(0);     opacity: 1; }
+  to   { transform: translateY(-100%); opacity: 0; }
+}
+
+/* ==========================================================================
+   THE BUBBLY MARK
+   Four bubbles, four animations, and at no frame of any of them does the thing
+   on screen stop being the logo. See components/Shared/BubblyMark.tsx.
+   ========================================================================== */
+
+.bubbly-mark__bubble,
+.bubbly-mark__grid {
+  /* Animating transform and opacity only: both are composited, so a mark that
+     runs for minutes during a long agent run costs no layout and no paint. */
+  will-change: transform, opacity;
+}
+
+/* --- breathe: all four together. Idle, present, not working. --- */
+@keyframes bubbly-breathe {
+  0%, 100% { transform: scale(1);    opacity: 0.92; }
+  50%      { transform: scale(1.09); opacity: 1; }
+}
+.bubbly-mark--breathe .bubbly-mark__bubble {
+  animation: bubbly-breathe 2.6s ease-in-out infinite;
+}
+
+/* --- cascade: a wave in reading order. Progress, with direction. --- */
+@keyframes bubbly-cascade {
+  0%, 70%, 100% { transform: translateY(0) scale(1); opacity: 0.85; }
+  20%           { transform: translateY(-3px) scale(1.12); opacity: 1; }
+  40%           { transform: translateY(0) scale(1); opacity: 0.85; }
+}
+.bubbly-mark--cascade .bubbly-mark__bubble {
+  animation: bubbly-cascade 1.6s ease-in-out infinite;
+}
+
+/* --- orbit: the grid turns as one body. Sustained work, no false progress. --- */
+@keyframes bubbly-orbit {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes bubbly-orbit-counter {
+  /* The bubbles counter-rotate so their highlights stay top-left and they keep
+     reading as lit from one direction — without this the mark tumbles and looks
+     like a loading spinner someone drew bubbles on. */
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+.bubbly-mark--orbit .bubbly-mark__grid {
+  animation: bubbly-orbit 3.2s linear infinite;
+}
+.bubbly-mark--orbit .bubbly-mark__bubble {
+  animation: bubbly-orbit-counter 3.2s linear infinite;
+}
+
+/* --- pulse: one at a time. Discrete steps — thinking rather than churning. --- */
+@keyframes bubbly-pulse {
+  0%, 55%, 100% { transform: scale(0.9); opacity: 0.45; }
+  20%           { transform: scale(1.14); opacity: 1; }
+}
+.bubbly-mark--pulse .bubbly-mark__bubble {
+  animation: bubbly-pulse 2.2s ease-in-out infinite;
+}
+/* Stagger by DELAY rather than by four separate keyframe sets: one animation,
+   four offsets, and the timing stays in step if the curve is ever changed. */
+.bubbly-mark--pulse .bubbly-mark__bubble:nth-child(1) { animation-delay: 0s; }
+.bubbly-mark--pulse .bubbly-mark__bubble:nth-child(2) { animation-delay: 0.55s; }
+.bubbly-mark--pulse .bubbly-mark__bubble:nth-child(3) { animation-delay: 1.65s; }
+.bubbly-mark--pulse .bubbly-mark__bubble:nth-child(4) { animation-delay: 1.1s; }
+
+/*
+  Reduced motion.
+
+  Not "freeze it": a still logo during a two-minute operation reads as hung, and
+  the person who asked for reduced motion still needs to know the app is alive.
+  A slow opacity breath carries that with no movement at all.
+*/
+@media (prefers-reduced-motion: reduce) {
+  @keyframes bubbly-reduced {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+  }
+  .bubbly-mark__grid,
+  .bubbly-mark__bubble {
+    animation: none !important;
+  }
+  .bubbly-mark--breathe .bubbly-mark__bubble,
+  .bubbly-mark--cascade .bubbly-mark__bubble,
+  .bubbly-mark--orbit .bubbly-mark__bubble,
+  .bubbly-mark--pulse .bubbly-mark__bubble {
+    animation: bubbly-reduced 2.4s ease-in-out infinite !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * The boot splash's indeterminate rail.
+ *
+ * A determinate bar would be a lie — nothing here knows how far along the boot
+ * is. A short segment sweeping a fixed track says "working, duration unknown",
+ * which is exactly the true statement. It only ever appears after ~900ms, so
+ * the common fast boot never animates at all.
+ * ------------------------------------------------------------------------- */
+@keyframes boot-rail-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}
+
+.boot-rail {
+  animation: boot-rail-sweep 1.15s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Freezing it would read as hung. A slow opacity breath conveys "still
+     going" without any movement. */
+  .boot-rail {
+    animation: none;
+    width: 100%;
+    opacity: 0.45;
+  }
+}

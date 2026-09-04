@@ -1,0 +1,37 @@
+{
+  "name": "bubbly",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bubbly \u2014 a local-first AI coding agent with a desktop IDE and a terminal client",
+  "scripts": {
+    "setup": "npm run setup:backend && npm run setup:frontend && npm run setup:cli",
+    "setup:backend": "cd backend && npm install",
+    "setup:frontend": "cd frontend && npm install",
+    "setup:desktop": "cd desktop && npm install --include=dev",
+    "dev": "npm run dev:backend & npm run dev:frontend",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend && npm run build:cli",
+    "build:backend": "cd backend && npm run build",
+    "themes": "node scripts/gen-themes.js",
+    "build:frontend": "npm run themes && cd frontend && npm run build",
+    "build:all": "node scripts/build-all.js",
+    "icons": "node scripts/gen-icons.js",
+    "desktop": "npm run build:all && cd desktop && npm start",
+    "desktop:dev": "cd desktop && npm start",
+    "dist": "npm run build:all && npm run icons && cd desktop && npm run dist",
+    "start": "cd backend && npm start",
+    "start:prod": "npm run build && npm start",
+    "setup:cli": "cd cli && npm install",
+    "test": "cd backend && npm test",
+    "typecheck": "cd backend && npx tsc --noEmit && cd ../frontend && npx tsc --noEmit && cd ../cli && npx tsc --noEmit",
+    "build:cli": "cd cli && npm run build",
+    "dist:win": "npm run build:all && npm run icons && cd desktop && npm run dist:win",
+    "dist:mac": "npm run build:all && npm run icons && cd desktop && npm run dist:mac",
+    "dist:linux": "npm run build:all && npm run icons && cd desktop && npm run dist:linux"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

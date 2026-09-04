@@ -1,0 +1,140 @@
+# Build Bubbly for every platform it ships on.
+#
+# WHY A MATRIX AND NOT ONE JOB
+#
+# Electron applications cannot be cross-built in any way worth shipping. A macOS
+# .dmg has to be produced on macOS (the toolchain, the code-signing and the
+# notarisation all require it), and a Linux .deb/.rpm built on Windows produces
+# packages with wrong permissions and broken symlinks. Each platform builds its
+# own artefacts on its own runner, which is slower and correct.
+#
+# The native dependency is the other reason: better-sqlite3 and node-pty are
+# compiled per platform and per architecture. There is no portable bundle to
+# copy between runners.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # Manual runs are how you test the pipeline without inventing a version tag.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install
+        run: |
+          npm --prefix backend ci
+          npm --prefix frontend ci
+          npm --prefix cli ci
+
+      # Typecheck before testing: a type error is faster to find and always
+      # means the tests below are running against something that would not ship.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm --prefix backend test
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing must not cancel the others — a macOS signing
+      # problem should still leave you with working Windows and Linux builds.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+          - os: macos-latest
+            target: mac
+          - os: ubuntu-latest
+            target: linux
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # electron-builder's Linux targets need these to produce rpm and AppImage.
+      - name: Linux packaging dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libarchive-tools
+
+      - name: Install
+        run: |
+          npm --prefix backend ci
+          npm --prefix frontend ci
+          npm --prefix desktop ci
+
+      - name: Build backend, frontend and themes
+        run: |
+          node scripts/gen-themes.js
+          npm --prefix backend run build
+          npm --prefix frontend run build
+
+      - name: Package
+        working-directory: desktop
+        run: npx electron-builder --${{ matrix.target }} --publish never
+        env:
+          # Signing is opt-in: a fork without certificates still produces
+          # installable (unsigned) builds rather than failing the job.
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bubbly-${{ matrix.target }}
+          # Only the installers — not the unpacked directories, which are large
+          # and useless to anyone downloading a release.
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+            desktop/release/*.rpm
+            desktop/release/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          draft: true
+          generate_release_notes: true

@@ -1,0 +1,364 @@
+/**
+ * Flat Background + Floating Cards Design System
+ *
+ * Inspired by Google Colab / Notion: a single flat page background with
+ * distinct UI elements rendered as floating cards (surface + radius + shadow).
+ *
+ * THEMING CONTRACT
+ * ----------------
+ * Every color is a CSS custom property declared on :root (light) and overridden
+ * under [data-theme="dark"]. Components must NEVER hard-code colors — they
+ * reference these variables (directly or through the legacy --surface/--text/
+ * --border aliases below), so theme switching is instant and consistent.
+ *
+ * The dark overrides are also mirrored under `html.dark` so Tailwind's
+ * class-based `dark:` variant and any legacy `html.dark` selectors keep working
+ * during/after the migration to the data-theme attribute.
+ */
+
+:root {
+  /* ---- Core flat-card palette (LIGHT) ----
+     Warm "paper/sand" neutrals (a hint of warmth, low saturation) for a
+     premium desktop feel rather than a cold gray. */
+  --bg-page: #f6f5f2;
+  --bg-card: #fffffe;
+  --bg-card-hover: #eeece7;
+  --border-color: rgba(30, 26, 20, 0.09);
+  --border-strong: rgba(30, 26, 20, 0.16);
+  /* Elevated, layered card shadow (Notion/Colab-style depth) */
+  --shadow-card: 0 1px 2px rgba(30, 26, 20, 0.05), 0 4px 14px rgba(30, 26, 20, 0.08);
+  --shadow-card-raised: 0 4px 12px rgba(30, 26, 20, 0.09), 0 12px 32px rgba(30, 26, 20, 0.13);
+  --text-primary: #1b1a16;
+  --text-secondary: #6a655c;
+  --text-tertiary: #9a958a;
+
+  /* ---- Spacing scale (8 / 12 / 16 / 24) ---- */
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
+
+  /* ---- Card geometry ---- */
+  --radius-card: 14px;
+  --radius-card-sm: 10px;
+
+  /* Solarized base colors (retained for syntax highlighting references) */
+  --sol-base03: #002b36;
+  --sol-base02: #073642;
+  --sol-base01: #586e75;
+  --sol-base00: #657b83;
+  --sol-base0: #839496;
+  --sol-base1: #93a1a1;
+  --sol-base2: #eee8d5;
+  --sol-base3: #fdf6e3;
+  --sol-yellow: #b58900;
+  --sol-orange: #cb4b16;
+  --sol-red: #dc322f;
+  --sol-magenta: #d33682;
+  --sol-violet: #6c71c4;
+  --sol-blue: #268bd2;
+  --sol-cyan: #2aa198;
+  --sol-green: #859900;
+
+  /* Brand accents (kept — brand identity + existing functional buttons) */
+  --brown-primary: #b58900;
+  --brown-secondary: #cb4b16;
+
+  /* Theme transition timing */
+  --theme-transition: 200ms ease;
+
+  /* ================================================================
+     LEGACY SEMANTIC ALIASES → flat-card palette
+     The whole app consumes these names; mapping them here re-skins
+     every component to the flat + floating-card look automatically.
+     ================================================================ */
+
+  /* Surfaces: page vs card elevations. surface-2 sits subtly between the card
+     and its hover tone so inputs/chips read as gently recessed, not flat. */
+  --surface-0: var(--bg-page);      /* flat page background */
+  --surface-1: var(--bg-card);      /* primary card surface */
+  --surface-2: #f4f2ee;             /* recessed control surface (inputs/chips) */
+  --surface-3: var(--bg-card-hover);/* hover / nested */
+  --surface-4: var(--bg-card-hover);/* stronger hover */
+
+  /* Borders */
+  --border: var(--border-color);
+  --border-bright: var(--border-strong);
+
+  /* Text */
+  --text: var(--text-primary);
+  --text-muted: var(--text-secondary);
+  --text-dim: var(--text-tertiary);
+  --text-bright: #0c0c0f;
+
+  /* Primary accent (brand spice-gold) — a cleaner, slightly deeper amber that
+     reads as intentional brand color, not a default yellow. */
+  --primary: #bd7d1c;
+  --primary-hover: #a56a12;
+  --primary-light: rgba(189, 125, 28, 0.12);
+
+  /* Secondary accent */
+  --secondary: var(--brown-secondary);
+  --secondary-hover: #b33f0f;
+  --secondary-light: rgba(203, 75, 22, 0.1);
+
+  /* Status colors */
+  --success: var(--sol-green);
+  --success-bg: rgba(133, 153, 0, 0.1);
+  --warning: var(--sol-yellow);
+  --warning-bg: rgba(181, 137, 0, 0.1);
+  --error: var(--sol-red);
+  --error-bg: rgba(220, 50, 47, 0.1);
+  --info: var(--sol-blue);
+  --info-bg: rgba(38, 139, 210, 0.1);
+
+  /* ================================================================
+     RGB CHANNEL MIRRORS (light)
+     Tailwind's opacity modifiers (`bg-accent/30`, `bg-surface-1/60`, …)
+     compile to `rgb(<color> / 0.3)`. That is only valid when the color is
+     space-separated CHANNELS — feeding it a hex through `var()` yields an
+     invalid declaration which the browser silently drops, so EVERY
+     opacity-modified class rendered as transparent (or fell back to a default
+     gray for borders). These mirrors let tailwind.config.js emit
+     `rgb(var(--x-rgb) / <alpha-value>)`.
+
+     Keep each in sync with the hex above it. Colors that already bake in an
+     alpha (--border, --primary-light, the *-bg tints) are deliberately NOT
+     mirrored — they stay plain `var()` in the config.
+     ================================================================ */
+  --primary-rgb: 189 125 28;
+  --primary-hover-rgb: 165 106 18;
+  --secondary-rgb: 203 75 22;
+  --success-rgb: 133 153 0;
+  --warning-rgb: 181 137 0;
+  --error-rgb: 220 50 47;
+  --info-rgb: 38 139 210;
+  --sol-cyan-rgb: 42 161 152;
+  --sol-magenta-rgb: 211 54 130;
+  --sol-violet-rgb: 108 113 196;
+  --brown-primary-rgb: 181 137 0;
+  --text-rgb: 27 26 22;
+  --text-muted-rgb: 106 101 92;
+  --text-dim-rgb: 154 149 138;
+  --text-bright-rgb: 12 12 15;
+  /* Border channels, for the rare place that genuinely needs its own alpha.
+     The baked --border/--border-bright stay the default; this is what makes
+     `border-hairline/40` legal instead of compiling to invalid CSS. */
+  --border-rgb: 30 26 20;
+  --surface-0-rgb: 246 245 242;
+  --surface-1-rgb: 255 255 254;
+  --surface-2-rgb: 244 242 238;
+  --surface-3-rgb: 238 236 231;
+  --surface-4-rgb: 238 236 231;
+
+  /* Code syntax highlighting */
+  --syntax-keyword: var(--sol-green);
+  --syntax-string: var(--sol-cyan);
+  --syntax-number: var(--sol-magenta);
+  --syntax-comment: var(--sol-base01);
+  --syntax-function: var(--sol-blue);
+  --syntax-variable: var(--sol-base00);
+  --syntax-operator: var(--sol-orange);
+  --syntax-constant: var(--sol-violet);
+}
+
+/* ==================================================================
+   DARK THEME
+   Applied via [data-theme="dark"] (preferred) and html.dark (compat).
+   ================================================================== */
+[data-theme="dark"],
+html.dark {
+  /* ---- Core flat-card palette (DARK — "Dune night") ----
+     Warm near-black charcoals with a faint spice undertone. The warmth is in
+     the hue, not the saturation, so it reads as a premium desktop dark theme
+     (like a well-tuned IDE) rather than a sepia filter. */
+  --bg-page: #100f0c;
+  --bg-card: #1a1815;
+  --bg-card-hover: #24211c;
+  --border-color: rgba(233, 221, 199, 0.09);
+  --border-strong: rgba(233, 221, 199, 0.17);
+  /* Elevated, layered card shadow for dark surfaces */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+  --text-primary: #ece6da;
+  --text-secondary: #a39c8c;
+  --text-tertiary: #726b5c;
+
+  /* Surfaces */
+  --surface-0: var(--bg-page);
+  --surface-1: var(--bg-card);
+  --surface-2: #201d19;             /* recessed control surface (inputs/chips) */
+  --surface-3: var(--bg-card-hover);
+  --surface-4: var(--bg-card-hover);
+
+  /* Borders */
+  --border: var(--border-color);
+  --border-bright: var(--border-strong);
+
+  /* Text */
+  --text: var(--text-primary);
+  --text-muted: var(--text-secondary);
+  --text-dim: var(--text-tertiary);
+  --text-bright: #ffffff;
+
+  /* Primary accent (spice-gold — brand). Bright enough to pop on the deep
+     charcoal without the neon look of a pure yellow. */
+  --primary: #e0a94a;
+  --primary-hover: #efbb63;
+  --primary-light: rgba(224, 169, 74, 0.15);
+
+  /* Secondary accent */
+  --secondary: #cb4b16;
+  --secondary-hover: #e55a1f;
+  --secondary-light: rgba(203, 75, 22, 0.15);
+
+  /* Status colors */
+  --success: #8a9a2b;
+  --success-bg: rgba(138, 154, 43, 0.15);
+  --warning: #d9a441;
+  --warning-bg: rgba(217, 164, 65, 0.15);
+  --error: #dc4a3f;
+  --error-bg: rgba(220, 74, 63, 0.15);
+  --info: #4a9fd4;
+  --info-bg: rgba(74, 159, 212, 0.15);
+
+  /* RGB channel mirrors (dark) — see the light block for why these exist.
+     Must stay in sync with the hex values above. */
+  --primary-rgb: 224 169 74;
+  --primary-hover-rgb: 239 187 99;
+  --secondary-rgb: 203 75 22;
+  --success-rgb: 138 154 43;
+  --warning-rgb: 217 164 65;
+  --error-rgb: 220 74 63;
+  --info-rgb: 74 159 212;
+  --sol-cyan-rgb: 42 161 152;
+  --sol-magenta-rgb: 211 54 130;
+  --sol-violet-rgb: 108 113 196;
+  --brown-primary-rgb: 181 137 0;
+  --border-rgb: 233 221 199;
+  --text-rgb: 236 230 218;
+  --text-muted-rgb: 163 156 140;
+  --text-dim-rgb: 114 107 92;
+  --text-bright-rgb: 255 255 255;
+  --surface-0-rgb: 16 15 12;
+  --surface-1-rgb: 26 24 21;
+  --surface-2-rgb: 32 29 25;
+  --surface-3-rgb: 36 33 28;
+  --surface-4-rgb: 36 33 28;
+
+  /* Code syntax highlighting */
+  --syntax-keyword: #c9a227;
+  --syntax-string: #8a9a2b;
+  --syntax-number: #d3869b;
+  --syntax-comment: #8a7d65;
+  --syntax-function: #4a9fd4;
+  --syntax-variable: #e8dfce;
+  --syntax-operator: #cb4b16;
+  --syntax-constant: #b48ead;
+}
+
+/* Smooth transitions on theme-dependent properties */
+html {
+  transition: background-color var(--theme-transition),
+              color var(--theme-transition);
+}
+
+* {
+  transition: background-color var(--theme-transition),
+              border-color var(--theme-transition),
+              color var(--theme-transition);
+}
+
+/* Prevent transitions on page load */
+html.no-transition,
+html.no-transition * {
+  transition: none !important;
+}
+
+/* Base page styling — a single flat background for the whole app */
+html, body, #root {
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+}
+
+/* ---- Reusable floating card ---- */
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.card-raised {
+  box-shadow: var(--shadow-card-raised);
+}
+
+/* Surface backgrounds */
+.bg-surface-0 { background-color: var(--surface-0); }
+.bg-surface-1 { background-color: var(--surface-1); }
+.bg-surface-2 { background-color: var(--surface-2); }
+.bg-surface-3 { background-color: var(--surface-3); }
+.bg-surface-4 { background-color: var(--surface-4); }
+
+/* Border colors */
+.border-border { border-color: var(--border); }
+.border-border-bright { border-color: var(--border-bright); }
+
+/* Text colors */
+.text-text { color: var(--text); }
+.text-text-muted { color: var(--text-muted); }
+.text-text-dim { color: var(--text-dim); }
+.text-text-bright { color: var(--text-bright); }
+
+/* Primary colors */
+.text-primary { color: var(--primary); }
+.bg-primary { background-color: var(--primary); }
+.bg-primary-light { background-color: var(--primary-light); }
+.border-primary { border-color: var(--primary); }
+
+/* Secondary colors */
+.text-secondary { color: var(--secondary); }
+.bg-secondary { background-color: var(--secondary); }
+.bg-secondary-light { background-color: var(--secondary-light); }
+.border-secondary { border-color: var(--secondary); }
+
+/* Status colors */
+.text-success { color: var(--success); }
+.bg-success { background-color: var(--success-bg); }
+.text-warning { color: var(--warning); }
+.bg-warning { background-color: var(--warning-bg); }
+.text-error { color: var(--error); }
+.bg-error { background-color: var(--error-bg); }
+.text-info { color: var(--info); }
+.bg-info { background-color: var(--info-bg); }
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* Selection */
+::selection {
+  background: var(--primary-light);
+  color: var(--text-bright);
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

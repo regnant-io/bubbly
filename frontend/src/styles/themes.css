@@ -1,0 +1,1725 @@
+/**
+ * GENERATED FILE — DO NOT EDIT.
+ *
+ * Written by scripts/gen-themes.js from frontend/src/styles/palettes.ts.
+ * Edit the palette data there and re-run `node scripts/gen-themes.js`.
+ *
+ * Selection model:
+ *   data-palette="<id>"  chooses the palette
+ *   data-theme="dark"    chooses the mode (absent/"light" means light)
+ *
+ * The two are independent on purpose: every palette ships both modes, so
+ * switching to dark never silently changes which theme you are using.
+ */
+
+/* ===== Slate — Cool lavender-grey. Low contrast noise, one confident accent — built for long sessions. ===== */
+:root,
+  :root[data-palette="slate"] {
+    --bg-page: #f2f0f5;
+    --bg-card: #fdfcfe;
+    --bg-card-hover: #e3dfec;
+    --border-color: rgba(201, 197, 214, 0.5);
+    --border-strong: rgba(201, 197, 214, 0.85);
+    --shadow-card: 0 1px 2px rgba(38, 36, 46, 0.05), 0 4px 14px rgba(38, 36, 46, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(38, 36, 46, 0.09), 0 12px 32px rgba(38, 36, 46, 0.13);
+    --text-primary: #26242e;
+    --text-secondary: #5c5869;
+    --text-tertiary: #8d8899;
+
+    --surface-0: #f2f0f5;
+    --surface-1: #fdfcfe;
+    --surface-2: #eae7f0;
+    --surface-3: #e3dfec;
+    --surface-4: #e3dfec;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #26242e;
+    --text-muted: #5c5869;
+    --text-dim: #8d8899;
+    --text-bright: #141219;
+
+    --primary: #6d5f9e;
+    --primary-hover: #5b4e89;
+    --primary-light: rgba(109, 95, 158, 0.12);
+    --secondary: #a06a8c;
+    --secondary-hover: #8b5878;
+    --secondary-light: rgba(160, 106, 140, 0.1);
+
+    --success: #4a7c59;
+    --success-bg: rgba(74, 124, 89, 0.13);
+    --warning: #a67c2e;
+    --warning-bg: rgba(166, 124, 46, 0.13);
+    --error: #b3453c;
+    --error-bg: rgba(179, 69, 60, 0.13);
+    --info: #4a6fa5;
+    --info-bg: rgba(74, 111, 165, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 109 95 158;
+    --primary-hover-rgb: 91 78 137;
+    --secondary-rgb: 160 106 140;
+    --success-rgb: 74 124 89;
+    --warning-rgb: 166 124 46;
+    --error-rgb: 179 69 60;
+    --info-rgb: 74 111 165;
+    --text-rgb: 38 36 46;
+    --text-muted-rgb: 92 88 105;
+    --text-dim-rgb: 141 136 153;
+    --text-bright-rgb: 20 18 25;
+    --surface-0-rgb: 242 240 245;
+    --surface-1-rgb: 253 252 254;
+    --surface-2-rgb: 234 231 240;
+    --surface-3-rgb: 227 223 236;
+    --surface-4-rgb: 227 223 236;
+    --border-rgb: 201 197 214;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #4a7c59;
+    --red-agent: #b3453c;
+    --amber-agent: #a67c2e;
+    --blue-agent: #4a6fa5;
+    --cyan-agent: #4a6fa5;
+    --violet-agent: #a06a8c;
+    --orange-agent: #a06a8c;
+    --brown-agent: #5c5869;
+    --accent: #6d5f9e;
+    --accent-bright: #5b4e89;
+    --accent-rgb: 109 95 158;
+    --accent-bright-rgb: 91 78 137;
+    --green-agent-rgb: 74 124 89;
+    --red-agent-rgb: 179 69 60;
+    --amber-agent-rgb: 166 124 46;
+    --blue-agent-rgb: 74 111 165;
+    --cyan-agent-rgb: 74 111 165;
+    --violet-agent-rgb: 160 106 140;
+    --orange-agent-rgb: 160 106 140;
+    --brown-agent-rgb: 92 88 105;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #6d5f9e;
+    --syntax-string: #4a7c59;
+    --syntax-number: #a06a8c;
+    --syntax-comment: #8d8899;
+    --syntax-function: #4a6fa5;
+    --syntax-variable: #26242e;
+    --syntax-operator: #a67c2e;
+    --syntax-constant: #8b5878;
+}
+
+:root[data-theme="dark"],
+  html.dark,
+  :root[data-palette="slate"][data-theme="dark"] {
+    --bg-page: #16151b;
+    --bg-card: #1f1e26;
+    --bg-card-hover: #2e2c3a;
+    --border-color: rgba(58, 56, 74, 0.14);
+    --border-strong: rgba(58, 56, 74, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #e6e3ee;
+    --text-secondary: #a9a4bb;
+    --text-tertiary: #6f6b80;
+
+    --surface-0: #16151b;
+    --surface-1: #1f1e26;
+    --surface-2: #262533;
+    --surface-3: #2e2c3a;
+    --surface-4: #2e2c3a;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #e6e3ee;
+    --text-muted: #a9a4bb;
+    --text-dim: #6f6b80;
+    --text-bright: #ffffff;
+
+    --primary: #a89bd8;
+    --primary-hover: #bcb1e4;
+    --primary-light: rgba(168, 155, 216, 0.15);
+    --secondary: #d19ab8;
+    --secondary-hover: #e0b0c9;
+    --secondary-light: rgba(209, 154, 184, 0.15);
+
+    --success: #7fb08c;
+    --success-bg: rgba(127, 176, 140, 0.13);
+    --warning: #d9b165;
+    --warning-bg: rgba(217, 177, 101, 0.13);
+    --error: #e0796f;
+    --error-bg: rgba(224, 121, 111, 0.13);
+    --info: #7fa3d9;
+    --info-bg: rgba(127, 163, 217, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 168 155 216;
+    --primary-hover-rgb: 188 177 228;
+    --secondary-rgb: 209 154 184;
+    --success-rgb: 127 176 140;
+    --warning-rgb: 217 177 101;
+    --error-rgb: 224 121 111;
+    --info-rgb: 127 163 217;
+    --text-rgb: 230 227 238;
+    --text-muted-rgb: 169 164 187;
+    --text-dim-rgb: 111 107 128;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 22 21 27;
+    --surface-1-rgb: 31 30 38;
+    --surface-2-rgb: 38 37 51;
+    --surface-3-rgb: 46 44 58;
+    --surface-4-rgb: 46 44 58;
+    --border-rgb: 58 56 74;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #7fb08c;
+    --red-agent: #e0796f;
+    --amber-agent: #d9b165;
+    --blue-agent: #7fa3d9;
+    --cyan-agent: #7fa3d9;
+    --violet-agent: #d19ab8;
+    --orange-agent: #d19ab8;
+    --brown-agent: #a9a4bb;
+    --accent: #a89bd8;
+    --accent-bright: #bcb1e4;
+    --accent-rgb: 168 155 216;
+    --accent-bright-rgb: 188 177 228;
+    --green-agent-rgb: 127 176 140;
+    --red-agent-rgb: 224 121 111;
+    --amber-agent-rgb: 217 177 101;
+    --blue-agent-rgb: 127 163 217;
+    --cyan-agent-rgb: 127 163 217;
+    --violet-agent-rgb: 209 154 184;
+    --orange-agent-rgb: 209 154 184;
+    --brown-agent-rgb: 169 164 187;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #a89bd8;
+    --syntax-string: #7fb08c;
+    --syntax-number: #d19ab8;
+    --syntax-comment: #6f6b80;
+    --syntax-function: #7fa3d9;
+    --syntax-variable: #e6e3ee;
+    --syntax-operator: #d9b165;
+    --syntax-constant: #e0b0c9;
+}
+
+/* ===== Paper — Near-white and quiet, with one vivid green accent. The editor gets out of the way. ===== */
+:root[data-palette="paper"] {
+    --bg-page: #f9f8f8;
+    --bg-card: #fffff3;
+    --bg-card-hover: #e9e8df;
+    --border-color: rgba(216, 215, 204, 0.5);
+    --border-strong: rgba(216, 215, 204, 0.85);
+    --shadow-card: 0 1px 2px rgba(30, 30, 24, 0.05), 0 4px 14px rgba(30, 30, 24, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(30, 30, 24, 0.09), 0 12px 32px rgba(30, 30, 24, 0.13);
+    --text-primary: #1a1a17;
+    --text-secondary: #57574f;
+    --text-tertiary: #8a8a80;
+
+    --surface-0: #f9f8f8;
+    --surface-1: #fffff3;
+    --surface-2: #f1f0e8;
+    --surface-3: #e9e8df;
+    --surface-4: #e9e8df;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #1a1a17;
+    --text-muted: #57574f;
+    --text-dim: #8a8a80;
+    --text-bright: #000000;
+
+    --primary: #12923a;
+    --primary-hover: #0d7a2f;
+    --primary-light: rgba(18, 146, 58, 0.12);
+    --secondary: #3a6ea5;
+    --secondary-hover: #2d5a8a;
+    --secondary-light: rgba(58, 110, 165, 0.1);
+
+    --success: #12923a;
+    --success-bg: rgba(18, 146, 58, 0.13);
+    --warning: #9a7412;
+    --warning-bg: rgba(154, 116, 18, 0.13);
+    --error: #b03030;
+    --error-bg: rgba(176, 48, 48, 0.13);
+    --info: #3a6ea5;
+    --info-bg: rgba(58, 110, 165, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 18 146 58;
+    --primary-hover-rgb: 13 122 47;
+    --secondary-rgb: 58 110 165;
+    --success-rgb: 18 146 58;
+    --warning-rgb: 154 116 18;
+    --error-rgb: 176 48 48;
+    --info-rgb: 58 110 165;
+    --text-rgb: 26 26 23;
+    --text-muted-rgb: 87 87 79;
+    --text-dim-rgb: 138 138 128;
+    --text-bright-rgb: 0 0 0;
+    --surface-0-rgb: 249 248 248;
+    --surface-1-rgb: 255 255 243;
+    --surface-2-rgb: 241 240 232;
+    --surface-3-rgb: 233 232 223;
+    --surface-4-rgb: 233 232 223;
+    --border-rgb: 216 215 204;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #12923a;
+    --red-agent: #b03030;
+    --amber-agent: #9a7412;
+    --blue-agent: #3a6ea5;
+    --cyan-agent: #3a6ea5;
+    --violet-agent: #3a6ea5;
+    --orange-agent: #3a6ea5;
+    --brown-agent: #57574f;
+    --accent: #12923a;
+    --accent-bright: #0d7a2f;
+    --accent-rgb: 18 146 58;
+    --accent-bright-rgb: 13 122 47;
+    --green-agent-rgb: 18 146 58;
+    --red-agent-rgb: 176 48 48;
+    --amber-agent-rgb: 154 116 18;
+    --blue-agent-rgb: 58 110 165;
+    --cyan-agent-rgb: 58 110 165;
+    --violet-agent-rgb: 58 110 165;
+    --orange-agent-rgb: 58 110 165;
+    --brown-agent-rgb: 87 87 79;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #12923a;
+    --syntax-string: #12923a;
+    --syntax-number: #3a6ea5;
+    --syntax-comment: #8a8a80;
+    --syntax-function: #3a6ea5;
+    --syntax-variable: #1a1a17;
+    --syntax-operator: #9a7412;
+    --syntax-constant: #2d5a8a;
+}
+
+:root[data-palette="paper"][data-theme="dark"],
+  html.dark:root[data-palette="paper"] {
+    --bg-page: #12130f;
+    --bg-card: #1a1c17;
+    --bg-card-hover: #2a2d24;
+    --border-color: rgba(56, 59, 48, 0.14);
+    --border-strong: rgba(56, 59, 48, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #eceee4;
+    --text-secondary: #a3a698;
+    --text-tertiary: #6c6f62;
+
+    --surface-0: #12130f;
+    --surface-1: #1a1c17;
+    --surface-2: #22241d;
+    --surface-3: #2a2d24;
+    --surface-4: #2a2d24;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #eceee4;
+    --text-muted: #a3a698;
+    --text-dim: #6c6f62;
+    --text-bright: #ffffff;
+
+    --primary: #3ce05c;
+    --primary-hover: #5eea79;
+    --primary-light: rgba(60, 224, 92, 0.15);
+    --secondary: #6fa8dc;
+    --secondary-hover: #8cbce8;
+    --secondary-light: rgba(111, 168, 220, 0.15);
+
+    --success: #3ce05c;
+    --success-bg: rgba(60, 224, 92, 0.13);
+    --warning: #d9b165;
+    --warning-bg: rgba(217, 177, 101, 0.13);
+    --error: #e0796f;
+    --error-bg: rgba(224, 121, 111, 0.13);
+    --info: #6fa8dc;
+    --info-bg: rgba(111, 168, 220, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 60 224 92;
+    --primary-hover-rgb: 94 234 121;
+    --secondary-rgb: 111 168 220;
+    --success-rgb: 60 224 92;
+    --warning-rgb: 217 177 101;
+    --error-rgb: 224 121 111;
+    --info-rgb: 111 168 220;
+    --text-rgb: 236 238 228;
+    --text-muted-rgb: 163 166 152;
+    --text-dim-rgb: 108 111 98;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 18 19 15;
+    --surface-1-rgb: 26 28 23;
+    --surface-2-rgb: 34 36 29;
+    --surface-3-rgb: 42 45 36;
+    --surface-4-rgb: 42 45 36;
+    --border-rgb: 56 59 48;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #3ce05c;
+    --red-agent: #e0796f;
+    --amber-agent: #d9b165;
+    --blue-agent: #6fa8dc;
+    --cyan-agent: #6fa8dc;
+    --violet-agent: #6fa8dc;
+    --orange-agent: #6fa8dc;
+    --brown-agent: #a3a698;
+    --accent: #3ce05c;
+    --accent-bright: #5eea79;
+    --accent-rgb: 60 224 92;
+    --accent-bright-rgb: 94 234 121;
+    --green-agent-rgb: 60 224 92;
+    --red-agent-rgb: 224 121 111;
+    --amber-agent-rgb: 217 177 101;
+    --blue-agent-rgb: 111 168 220;
+    --cyan-agent-rgb: 111 168 220;
+    --violet-agent-rgb: 111 168 220;
+    --orange-agent-rgb: 111 168 220;
+    --brown-agent-rgb: 163 166 152;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #3ce05c;
+    --syntax-string: #3ce05c;
+    --syntax-number: #6fa8dc;
+    --syntax-comment: #6c6f62;
+    --syntax-function: #6fa8dc;
+    --syntax-variable: #eceee4;
+    --syntax-operator: #d9b165;
+    --syntax-constant: #8cbce8;
+}
+
+/* ===== Mint — Soft greens over neutral grey. Calm without being sleepy. ===== */
+:root[data-palette="mint"] {
+    --bg-page: #eef7ec;
+    --bg-card: #fbfefa;
+    --bg-card-hover: #d7ecd4;
+    --border-color: rgba(188, 212, 182, 0.5);
+    --border-strong: rgba(188, 212, 182, 0.85);
+    --shadow-card: 0 1px 2px rgba(30, 40, 28, 0.05), 0 4px 14px rgba(30, 40, 28, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(30, 40, 28, 0.09), 0 12px 32px rgba(30, 40, 28, 0.13);
+    --text-primary: #22291f;
+    --text-secondary: #54604f;
+    --text-tertiary: #87927f;
+
+    --surface-0: #eef7ec;
+    --surface-1: #fbfefa;
+    --surface-2: #e2f0de;
+    --surface-3: #d7ecd4;
+    --surface-4: #d7ecd4;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #22291f;
+    --text-muted: #54604f;
+    --text-dim: #87927f;
+    --text-bright: #101410;
+
+    --primary: #4f7a3f;
+    --primary-hover: #406530;
+    --primary-light: rgba(79, 122, 63, 0.12);
+    --secondary: #5d7f8a;
+    --secondary-hover: #4a6a74;
+    --secondary-light: rgba(93, 127, 138, 0.1);
+
+    --success: #4f7a3f;
+    --success-bg: rgba(79, 122, 63, 0.13);
+    --warning: #9c7a24;
+    --warning-bg: rgba(156, 122, 36, 0.13);
+    --error: #b04a40;
+    --error-bg: rgba(176, 74, 64, 0.13);
+    --info: #4a7ba5;
+    --info-bg: rgba(74, 123, 165, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 79 122 63;
+    --primary-hover-rgb: 64 101 48;
+    --secondary-rgb: 93 127 138;
+    --success-rgb: 79 122 63;
+    --warning-rgb: 156 122 36;
+    --error-rgb: 176 74 64;
+    --info-rgb: 74 123 165;
+    --text-rgb: 34 41 31;
+    --text-muted-rgb: 84 96 79;
+    --text-dim-rgb: 135 146 127;
+    --text-bright-rgb: 16 20 16;
+    --surface-0-rgb: 238 247 236;
+    --surface-1-rgb: 251 254 250;
+    --surface-2-rgb: 226 240 222;
+    --surface-3-rgb: 215 236 212;
+    --surface-4-rgb: 215 236 212;
+    --border-rgb: 188 212 182;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #4f7a3f;
+    --red-agent: #b04a40;
+    --amber-agent: #9c7a24;
+    --blue-agent: #4a7ba5;
+    --cyan-agent: #4a7ba5;
+    --violet-agent: #5d7f8a;
+    --orange-agent: #5d7f8a;
+    --brown-agent: #54604f;
+    --accent: #4f7a3f;
+    --accent-bright: #406530;
+    --accent-rgb: 79 122 63;
+    --accent-bright-rgb: 64 101 48;
+    --green-agent-rgb: 79 122 63;
+    --red-agent-rgb: 176 74 64;
+    --amber-agent-rgb: 156 122 36;
+    --blue-agent-rgb: 74 123 165;
+    --cyan-agent-rgb: 74 123 165;
+    --violet-agent-rgb: 93 127 138;
+    --orange-agent-rgb: 93 127 138;
+    --brown-agent-rgb: 84 96 79;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #4f7a3f;
+    --syntax-string: #4f7a3f;
+    --syntax-number: #5d7f8a;
+    --syntax-comment: #87927f;
+    --syntax-function: #4a7ba5;
+    --syntax-variable: #22291f;
+    --syntax-operator: #9c7a24;
+    --syntax-constant: #4a6a74;
+}
+
+:root[data-palette="mint"][data-theme="dark"],
+  html.dark:root[data-palette="mint"] {
+    --bg-page: #131711;
+    --bg-card: #1b201a;
+    --bg-card-hover: #2b3328;
+    --border-color: rgba(56, 65, 47, 0.14);
+    --border-strong: rgba(56, 65, 47, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #e3ecdf;
+    --text-secondary: #a2ad9c;
+    --text-tertiary: #6b7566;
+
+    --surface-0: #131711;
+    --surface-1: #1b201a;
+    --surface-2: #232a21;
+    --surface-3: #2b3328;
+    --surface-4: #2b3328;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #e3ecdf;
+    --text-muted: #a2ad9c;
+    --text-dim: #6b7566;
+    --text-bright: #ffffff;
+
+    --primary: #98c98a;
+    --primary-hover: #aed99f;
+    --primary-light: rgba(152, 201, 138, 0.15);
+    --secondary: #8fb3bd;
+    --secondary-hover: #a5c5cf;
+    --secondary-light: rgba(143, 179, 189, 0.15);
+
+    --success: #98c98a;
+    --success-bg: rgba(152, 201, 138, 0.13);
+    --warning: #d4b168;
+    --warning-bg: rgba(212, 177, 104, 0.13);
+    --error: #df8074;
+    --error-bg: rgba(223, 128, 116, 0.13);
+    --info: #84aed4;
+    --info-bg: rgba(132, 174, 212, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 152 201 138;
+    --primary-hover-rgb: 174 217 159;
+    --secondary-rgb: 143 179 189;
+    --success-rgb: 152 201 138;
+    --warning-rgb: 212 177 104;
+    --error-rgb: 223 128 116;
+    --info-rgb: 132 174 212;
+    --text-rgb: 227 236 223;
+    --text-muted-rgb: 162 173 156;
+    --text-dim-rgb: 107 117 102;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 19 23 17;
+    --surface-1-rgb: 27 32 26;
+    --surface-2-rgb: 35 42 33;
+    --surface-3-rgb: 43 51 40;
+    --surface-4-rgb: 43 51 40;
+    --border-rgb: 56 65 47;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #98c98a;
+    --red-agent: #df8074;
+    --amber-agent: #d4b168;
+    --blue-agent: #84aed4;
+    --cyan-agent: #84aed4;
+    --violet-agent: #8fb3bd;
+    --orange-agent: #8fb3bd;
+    --brown-agent: #a2ad9c;
+    --accent: #98c98a;
+    --accent-bright: #aed99f;
+    --accent-rgb: 152 201 138;
+    --accent-bright-rgb: 174 217 159;
+    --green-agent-rgb: 152 201 138;
+    --red-agent-rgb: 223 128 116;
+    --amber-agent-rgb: 212 177 104;
+    --blue-agent-rgb: 132 174 212;
+    --cyan-agent-rgb: 132 174 212;
+    --violet-agent-rgb: 143 179 189;
+    --orange-agent-rgb: 143 179 189;
+    --brown-agent-rgb: 162 173 156;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #98c98a;
+    --syntax-string: #98c98a;
+    --syntax-number: #8fb3bd;
+    --syntax-comment: #6b7566;
+    --syntax-function: #84aed4;
+    --syntax-variable: #e3ecdf;
+    --syntax-operator: #d4b168;
+    --syntax-constant: #a5c5cf;
+}
+
+/* ===== Lime — Near-black green with a lime accent. A terminal that happens to be an IDE. ===== */
+:root[data-palette="lime"] {
+    --bg-page: #f2f6f0;
+    --bg-card: #ffffff;
+    --bg-card-hover: #dde6d9;
+    --border-color: rgba(195, 208, 189, 0.5);
+    --border-strong: rgba(195, 208, 189, 0.85);
+    --shadow-card: 0 1px 2px rgba(16, 24, 16, 0.05), 0 4px 14px rgba(16, 24, 16, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(16, 24, 16, 0.09), 0 12px 32px rgba(16, 24, 16, 0.13);
+    --text-primary: #111a12;
+    --text-secondary: #4a564b;
+    --text-tertiary: #7d887d;
+
+    --surface-0: #f2f6f0;
+    --surface-1: #ffffff;
+    --surface-2: #e7ede4;
+    --surface-3: #dde6d9;
+    --surface-4: #dde6d9;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #111a12;
+    --text-muted: #4a564b;
+    --text-dim: #7d887d;
+    --text-bright: #000000;
+
+    --primary: #3f7d1f;
+    --primary-hover: #336618;
+    --primary-light: rgba(63, 125, 31, 0.12);
+    --secondary: #2f6f5f;
+    --secondary-hover: #255b4d;
+    --secondary-light: rgba(47, 111, 95, 0.1);
+
+    --success: #3f7d1f;
+    --success-bg: rgba(63, 125, 31, 0.13);
+    --warning: #96731f;
+    --warning-bg: rgba(150, 115, 31, 0.13);
+    --error: #a94436;
+    --error-bg: rgba(169, 68, 54, 0.13);
+    --info: #3a6f9a;
+    --info-bg: rgba(58, 111, 154, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 63 125 31;
+    --primary-hover-rgb: 51 102 24;
+    --secondary-rgb: 47 111 95;
+    --success-rgb: 63 125 31;
+    --warning-rgb: 150 115 31;
+    --error-rgb: 169 68 54;
+    --info-rgb: 58 111 154;
+    --text-rgb: 17 26 18;
+    --text-muted-rgb: 74 86 75;
+    --text-dim-rgb: 125 136 125;
+    --text-bright-rgb: 0 0 0;
+    --surface-0-rgb: 242 246 240;
+    --surface-1-rgb: 255 255 255;
+    --surface-2-rgb: 231 237 228;
+    --surface-3-rgb: 221 230 217;
+    --surface-4-rgb: 221 230 217;
+    --border-rgb: 195 208 189;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #3f7d1f;
+    --red-agent: #a94436;
+    --amber-agent: #96731f;
+    --blue-agent: #3a6f9a;
+    --cyan-agent: #3a6f9a;
+    --violet-agent: #2f6f5f;
+    --orange-agent: #2f6f5f;
+    --brown-agent: #4a564b;
+    --accent: #3f7d1f;
+    --accent-bright: #336618;
+    --accent-rgb: 63 125 31;
+    --accent-bright-rgb: 51 102 24;
+    --green-agent-rgb: 63 125 31;
+    --red-agent-rgb: 169 68 54;
+    --amber-agent-rgb: 150 115 31;
+    --blue-agent-rgb: 58 111 154;
+    --cyan-agent-rgb: 58 111 154;
+    --violet-agent-rgb: 47 111 95;
+    --orange-agent-rgb: 47 111 95;
+    --brown-agent-rgb: 74 86 75;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #3f7d1f;
+    --syntax-string: #3f7d1f;
+    --syntax-number: #2f6f5f;
+    --syntax-comment: #7d887d;
+    --syntax-function: #3a6f9a;
+    --syntax-variable: #111a12;
+    --syntax-operator: #96731f;
+    --syntax-constant: #255b4d;
+}
+
+:root[data-palette="lime"][data-theme="dark"],
+  html.dark:root[data-palette="lime"] {
+    --bg-page: #040f06;
+    --bg-card: #0b1a0e;
+    --bg-card-hover: #182e1b;
+    --border-color: rgba(34, 61, 38, 0.14);
+    --border-strong: rgba(34, 61, 38, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #dcf0dd;
+    --text-secondary: #93a894;
+    --text-tertiary: #5f7261;
+
+    --surface-0: #040f06;
+    --surface-1: #0b1a0e;
+    --surface-2: #122414;
+    --surface-3: #182e1b;
+    --surface-4: #182e1b;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #dcf0dd;
+    --text-muted: #93a894;
+    --text-dim: #5f7261;
+    --text-bright: #ffffff;
+
+    --primary: #7dd93f;
+    --primary-hover: #95e65c;
+    --primary-light: rgba(125, 217, 63, 0.15);
+    --secondary: #3fd9b0;
+    --secondary-hover: #5ee6c3;
+    --secondary-light: rgba(63, 217, 176, 0.15);
+
+    --success: #7dd93f;
+    --success-bg: rgba(125, 217, 63, 0.13);
+    --warning: #d9c23f;
+    --warning-bg: rgba(217, 194, 63, 0.13);
+    --error: #e0705f;
+    --error-bg: rgba(224, 112, 95, 0.13);
+    --info: #5aa9e0;
+    --info-bg: rgba(90, 169, 224, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 125 217 63;
+    --primary-hover-rgb: 149 230 92;
+    --secondary-rgb: 63 217 176;
+    --success-rgb: 125 217 63;
+    --warning-rgb: 217 194 63;
+    --error-rgb: 224 112 95;
+    --info-rgb: 90 169 224;
+    --text-rgb: 220 240 221;
+    --text-muted-rgb: 147 168 148;
+    --text-dim-rgb: 95 114 97;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 4 15 6;
+    --surface-1-rgb: 11 26 14;
+    --surface-2-rgb: 18 36 20;
+    --surface-3-rgb: 24 46 27;
+    --surface-4-rgb: 24 46 27;
+    --border-rgb: 34 61 38;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #7dd93f;
+    --red-agent: #e0705f;
+    --amber-agent: #d9c23f;
+    --blue-agent: #5aa9e0;
+    --cyan-agent: #5aa9e0;
+    --violet-agent: #3fd9b0;
+    --orange-agent: #3fd9b0;
+    --brown-agent: #93a894;
+    --accent: #7dd93f;
+    --accent-bright: #95e65c;
+    --accent-rgb: 125 217 63;
+    --accent-bright-rgb: 149 230 92;
+    --green-agent-rgb: 125 217 63;
+    --red-agent-rgb: 224 112 95;
+    --amber-agent-rgb: 217 194 63;
+    --blue-agent-rgb: 90 169 224;
+    --cyan-agent-rgb: 90 169 224;
+    --violet-agent-rgb: 63 217 176;
+    --orange-agent-rgb: 63 217 176;
+    --brown-agent-rgb: 147 168 148;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #7dd93f;
+    --syntax-string: #7dd93f;
+    --syntax-number: #3fd9b0;
+    --syntax-comment: #5f7261;
+    --syntax-function: #5aa9e0;
+    --syntax-variable: #dcf0dd;
+    --syntax-operator: #d9c23f;
+    --syntax-constant: #5ee6c3;
+}
+
+/* ===== Ember — Warm sand and terracotta. Bright, high energy, still readable at 2am. ===== */
+:root[data-palette="ember"] {
+    --bg-page: #fbf6ea;
+    --bg-card: #fffdf4;
+    --bg-card-hover: #efe3c9;
+    --border-color: rgba(220, 205, 174, 0.5);
+    --border-strong: rgba(220, 205, 174, 0.85);
+    --shadow-card: 0 1px 2px rgba(60, 40, 24, 0.05), 0 4px 14px rgba(60, 40, 24, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(60, 40, 24, 0.09), 0 12px 32px rgba(60, 40, 24, 0.13);
+    --text-primary: #2b201a;
+    --text-secondary: #61503f;
+    --text-tertiary: #948270;
+
+    --surface-0: #fbf6ea;
+    --surface-1: #fffdf4;
+    --surface-2: #f5ecd9;
+    --surface-3: #efe3c9;
+    --surface-4: #efe3c9;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #2b201a;
+    --text-muted: #61503f;
+    --text-dim: #948270;
+    --text-bright: #160f0b;
+
+    --primary: #c8542f;
+    --primary-hover: #ab4324;
+    --primary-light: rgba(200, 84, 47, 0.12);
+    --secondary: #754744;
+    --secondary-hover: #5f3836;
+    --secondary-light: rgba(117, 71, 68, 0.1);
+
+    --success: #5b7d3a;
+    --success-bg: rgba(91, 125, 58, 0.13);
+    --warning: #a8791c;
+    --warning-bg: rgba(168, 121, 28, 0.13);
+    --error: #b8402f;
+    --error-bg: rgba(184, 64, 47, 0.13);
+    --info: #3f6f96;
+    --info-bg: rgba(63, 111, 150, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 200 84 47;
+    --primary-hover-rgb: 171 67 36;
+    --secondary-rgb: 117 71 68;
+    --success-rgb: 91 125 58;
+    --warning-rgb: 168 121 28;
+    --error-rgb: 184 64 47;
+    --info-rgb: 63 111 150;
+    --text-rgb: 43 32 26;
+    --text-muted-rgb: 97 80 63;
+    --text-dim-rgb: 148 130 112;
+    --text-bright-rgb: 22 15 11;
+    --surface-0-rgb: 251 246 234;
+    --surface-1-rgb: 255 253 244;
+    --surface-2-rgb: 245 236 217;
+    --surface-3-rgb: 239 227 201;
+    --surface-4-rgb: 239 227 201;
+    --border-rgb: 220 205 174;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #5b7d3a;
+    --red-agent: #b8402f;
+    --amber-agent: #a8791c;
+    --blue-agent: #3f6f96;
+    --cyan-agent: #3f6f96;
+    --violet-agent: #754744;
+    --orange-agent: #754744;
+    --brown-agent: #61503f;
+    --accent: #c8542f;
+    --accent-bright: #ab4324;
+    --accent-rgb: 200 84 47;
+    --accent-bright-rgb: 171 67 36;
+    --green-agent-rgb: 91 125 58;
+    --red-agent-rgb: 184 64 47;
+    --amber-agent-rgb: 168 121 28;
+    --blue-agent-rgb: 63 111 150;
+    --cyan-agent-rgb: 63 111 150;
+    --violet-agent-rgb: 117 71 68;
+    --orange-agent-rgb: 117 71 68;
+    --brown-agent-rgb: 97 80 63;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #c8542f;
+    --syntax-string: #5b7d3a;
+    --syntax-number: #754744;
+    --syntax-comment: #948270;
+    --syntax-function: #3f6f96;
+    --syntax-variable: #2b201a;
+    --syntax-operator: #a8791c;
+    --syntax-constant: #5f3836;
+}
+
+:root[data-palette="ember"][data-theme="dark"],
+  html.dark:root[data-palette="ember"] {
+    --bg-page: #1a1310;
+    --bg-card: #241a15;
+    --bg-card-hover: #392920;
+    --border-color: rgba(74, 53, 42, 0.14);
+    --border-strong: rgba(74, 53, 42, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #f2e4d2;
+    --text-secondary: #b8a48d;
+    --text-tertiary: #7d6c5b;
+
+    --surface-0: #1a1310;
+    --surface-1: #241a15;
+    --surface-2: #2e211a;
+    --surface-3: #392920;
+    --surface-4: #392920;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #f2e4d2;
+    --text-muted: #b8a48d;
+    --text-dim: #7d6c5b;
+    --text-bright: #ffffff;
+
+    --primary: #ec7357;
+    --primary-hover: #f28d74;
+    --primary-light: rgba(236, 115, 87, 0.15);
+    --secondary: #e1ce7a;
+    --secondary-hover: #ebdc96;
+    --secondary-light: rgba(225, 206, 122, 0.15);
+
+    --success: #a3c46a;
+    --success-bg: rgba(163, 196, 106, 0.13);
+    --warning: #e1ce7a;
+    --warning-bg: rgba(225, 206, 122, 0.13);
+    --error: #e8695a;
+    --error-bg: rgba(232, 105, 90, 0.13);
+    --info: #7fb0d9;
+    --info-bg: rgba(127, 176, 217, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 236 115 87;
+    --primary-hover-rgb: 242 141 116;
+    --secondary-rgb: 225 206 122;
+    --success-rgb: 163 196 106;
+    --warning-rgb: 225 206 122;
+    --error-rgb: 232 105 90;
+    --info-rgb: 127 176 217;
+    --text-rgb: 242 228 210;
+    --text-muted-rgb: 184 164 141;
+    --text-dim-rgb: 125 108 91;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 26 19 16;
+    --surface-1-rgb: 36 26 21;
+    --surface-2-rgb: 46 33 26;
+    --surface-3-rgb: 57 41 32;
+    --surface-4-rgb: 57 41 32;
+    --border-rgb: 74 53 42;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #a3c46a;
+    --red-agent: #e8695a;
+    --amber-agent: #e1ce7a;
+    --blue-agent: #7fb0d9;
+    --cyan-agent: #7fb0d9;
+    --violet-agent: #e1ce7a;
+    --orange-agent: #e1ce7a;
+    --brown-agent: #b8a48d;
+    --accent: #ec7357;
+    --accent-bright: #f28d74;
+    --accent-rgb: 236 115 87;
+    --accent-bright-rgb: 242 141 116;
+    --green-agent-rgb: 163 196 106;
+    --red-agent-rgb: 232 105 90;
+    --amber-agent-rgb: 225 206 122;
+    --blue-agent-rgb: 127 176 217;
+    --cyan-agent-rgb: 127 176 217;
+    --violet-agent-rgb: 225 206 122;
+    --orange-agent-rgb: 225 206 122;
+    --brown-agent-rgb: 184 164 141;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #ec7357;
+    --syntax-string: #a3c46a;
+    --syntax-number: #e1ce7a;
+    --syntax-comment: #7d6c5b;
+    --syntax-function: #7fb0d9;
+    --syntax-variable: #f2e4d2;
+    --syntax-operator: #e1ce7a;
+    --syntax-constant: #ebdc96;
+}
+
+/* ===== Moss — Muted olive and taupe. Nothing competes for attention. ===== */
+:root[data-palette="moss"] {
+    --bg-page: #f2f3ef;
+    --bg-card: #fcfdfa;
+    --bg-card-hover: #dee1d8;
+    --border-color: rgba(197, 201, 189, 0.5);
+    --border-strong: rgba(197, 201, 189, 0.85);
+    --shadow-card: 0 1px 2px rgba(34, 38, 32, 0.05), 0 4px 14px rgba(34, 38, 32, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(34, 38, 32, 0.09), 0 12px 32px rgba(34, 38, 32, 0.13);
+    --text-primary: #232620;
+    --text-secondary: #545e56;
+    --text-tertiary: #8a9084;
+
+    --surface-0: #f2f3ef;
+    --surface-1: #fcfdfa;
+    --surface-2: #e7e9e2;
+    --surface-3: #dee1d8;
+    --surface-4: #dee1d8;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #232620;
+    --text-muted: #545e56;
+    --text-dim: #8a9084;
+    --text-bright: #12140f;
+
+    --primary: #5a6b54;
+    --primary-hover: #485643;
+    --primary-light: rgba(90, 107, 84, 0.12);
+    --secondary: #917c78;
+    --secondary-hover: #7a6764;
+    --secondary-light: rgba(145, 124, 120, 0.1);
+
+    --success: #5a6b54;
+    --success-bg: rgba(90, 107, 84, 0.13);
+    --warning: #95772a;
+    --warning-bg: rgba(149, 119, 42, 0.13);
+    --error: #a9483d;
+    --error-bg: rgba(169, 72, 61, 0.13);
+    --info: #4d6f85;
+    --info-bg: rgba(77, 111, 133, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 90 107 84;
+    --primary-hover-rgb: 72 86 67;
+    --secondary-rgb: 145 124 120;
+    --success-rgb: 90 107 84;
+    --warning-rgb: 149 119 42;
+    --error-rgb: 169 72 61;
+    --info-rgb: 77 111 133;
+    --text-rgb: 35 38 32;
+    --text-muted-rgb: 84 94 86;
+    --text-dim-rgb: 138 144 132;
+    --text-bright-rgb: 18 20 15;
+    --surface-0-rgb: 242 243 239;
+    --surface-1-rgb: 252 253 250;
+    --surface-2-rgb: 231 233 226;
+    --surface-3-rgb: 222 225 216;
+    --surface-4-rgb: 222 225 216;
+    --border-rgb: 197 201 189;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #5a6b54;
+    --red-agent: #a9483d;
+    --amber-agent: #95772a;
+    --blue-agent: #4d6f85;
+    --cyan-agent: #4d6f85;
+    --violet-agent: #917c78;
+    --orange-agent: #917c78;
+    --brown-agent: #545e56;
+    --accent: #5a6b54;
+    --accent-bright: #485643;
+    --accent-rgb: 90 107 84;
+    --accent-bright-rgb: 72 86 67;
+    --green-agent-rgb: 90 107 84;
+    --red-agent-rgb: 169 72 61;
+    --amber-agent-rgb: 149 119 42;
+    --blue-agent-rgb: 77 111 133;
+    --cyan-agent-rgb: 77 111 133;
+    --violet-agent-rgb: 145 124 120;
+    --orange-agent-rgb: 145 124 120;
+    --brown-agent-rgb: 84 94 86;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #5a6b54;
+    --syntax-string: #5a6b54;
+    --syntax-number: #917c78;
+    --syntax-comment: #8a9084;
+    --syntax-function: #4d6f85;
+    --syntax-variable: #232620;
+    --syntax-operator: #95772a;
+    --syntax-constant: #7a6764;
+}
+
+:root[data-palette="moss"][data-theme="dark"],
+  html.dark:root[data-palette="moss"] {
+    --bg-page: #151714;
+    --bg-card: #1d201b;
+    --bg-card-hover: #2d322b;
+    --border-color: rgba(58, 63, 55, 0.14);
+    --border-strong: rgba(58, 63, 55, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #e4e7df;
+    --text-secondary: #a3a99b;
+    --text-tertiary: #6d7367;
+
+    --surface-0: #151714;
+    --surface-1: #1d201b;
+    --surface-2: #252923;
+    --surface-3: #2d322b;
+    --surface-4: #2d322b;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #e4e7df;
+    --text-muted: #a3a99b;
+    --text-dim: #6d7367;
+    --text-bright: #ffffff;
+
+    --primary: #9fb097;
+    --primary-hover: #b4c3ac;
+    --primary-light: rgba(159, 176, 151, 0.15);
+    --secondary: #c2a7a2;
+    --secondary-hover: #d3bcb7;
+    --secondary-light: rgba(194, 167, 162, 0.15);
+
+    --success: #9fb097;
+    --success-bg: rgba(159, 176, 151, 0.13);
+    --warning: #cfb073;
+    --warning-bg: rgba(207, 176, 115, 0.13);
+    --error: #dd8175;
+    --error-bg: rgba(221, 129, 117, 0.13);
+    --info: #8aabc0;
+    --info-bg: rgba(138, 171, 192, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 159 176 151;
+    --primary-hover-rgb: 180 195 172;
+    --secondary-rgb: 194 167 162;
+    --success-rgb: 159 176 151;
+    --warning-rgb: 207 176 115;
+    --error-rgb: 221 129 117;
+    --info-rgb: 138 171 192;
+    --text-rgb: 228 231 223;
+    --text-muted-rgb: 163 169 155;
+    --text-dim-rgb: 109 115 103;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 21 23 20;
+    --surface-1-rgb: 29 32 27;
+    --surface-2-rgb: 37 41 35;
+    --surface-3-rgb: 45 50 43;
+    --surface-4-rgb: 45 50 43;
+    --border-rgb: 58 63 55;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #9fb097;
+    --red-agent: #dd8175;
+    --amber-agent: #cfb073;
+    --blue-agent: #8aabc0;
+    --cyan-agent: #8aabc0;
+    --violet-agent: #c2a7a2;
+    --orange-agent: #c2a7a2;
+    --brown-agent: #a3a99b;
+    --accent: #9fb097;
+    --accent-bright: #b4c3ac;
+    --accent-rgb: 159 176 151;
+    --accent-bright-rgb: 180 195 172;
+    --green-agent-rgb: 159 176 151;
+    --red-agent-rgb: 221 129 117;
+    --amber-agent-rgb: 207 176 115;
+    --blue-agent-rgb: 138 171 192;
+    --cyan-agent-rgb: 138 171 192;
+    --violet-agent-rgb: 194 167 162;
+    --orange-agent-rgb: 194 167 162;
+    --brown-agent-rgb: 163 169 155;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #9fb097;
+    --syntax-string: #9fb097;
+    --syntax-number: #c2a7a2;
+    --syntax-comment: #6d7367;
+    --syntax-function: #8aabc0;
+    --syntax-variable: #e4e7df;
+    --syntax-operator: #cfb073;
+    --syntax-constant: #d3bcb7;
+}
+
+/* ===== Indigo — Deep blue-violet with crisp contrast. An unmistakably night theme. ===== */
+:root[data-palette="indigo"] {
+    --bg-page: #f1f3fa;
+    --bg-card: #ffffff;
+    --bg-card-hover: #dbe1f1;
+    --border-color: rgba(194, 202, 226, 0.5);
+    --border-strong: rgba(194, 202, 226, 0.85);
+    --shadow-card: 0 1px 2px rgba(24, 30, 56, 0.05), 0 4px 14px rgba(24, 30, 56, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(24, 30, 56, 0.09), 0 12px 32px rgba(24, 30, 56, 0.13);
+    --text-primary: #1b1f2e;
+    --text-secondary: #4e5670;
+    --text-tertiary: #828aa4;
+
+    --surface-0: #f1f3fa;
+    --surface-1: #ffffff;
+    --surface-2: #e6eaf6;
+    --surface-3: #dbe1f1;
+    --surface-4: #dbe1f1;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #1b1f2e;
+    --text-muted: #4e5670;
+    --text-dim: #828aa4;
+    --text-bright: #0b0e18;
+
+    --primary: #4257b2;
+    --primary-hover: #35479a;
+    --primary-light: rgba(66, 87, 178, 0.12);
+    --secondary: #7b4fb8;
+    --secondary-hover: #663e9d;
+    --secondary-light: rgba(123, 79, 184, 0.1);
+
+    --success: #3f7d55;
+    --success-bg: rgba(63, 125, 85, 0.13);
+    --warning: #96741d;
+    --warning-bg: rgba(150, 116, 29, 0.13);
+    --error: #b03f42;
+    --error-bg: rgba(176, 63, 66, 0.13);
+    --info: #4257b2;
+    --info-bg: rgba(66, 87, 178, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 66 87 178;
+    --primary-hover-rgb: 53 71 154;
+    --secondary-rgb: 123 79 184;
+    --success-rgb: 63 125 85;
+    --warning-rgb: 150 116 29;
+    --error-rgb: 176 63 66;
+    --info-rgb: 66 87 178;
+    --text-rgb: 27 31 46;
+    --text-muted-rgb: 78 86 112;
+    --text-dim-rgb: 130 138 164;
+    --text-bright-rgb: 11 14 24;
+    --surface-0-rgb: 241 243 250;
+    --surface-1-rgb: 255 255 255;
+    --surface-2-rgb: 230 234 246;
+    --surface-3-rgb: 219 225 241;
+    --surface-4-rgb: 219 225 241;
+    --border-rgb: 194 202 226;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #3f7d55;
+    --red-agent: #b03f42;
+    --amber-agent: #96741d;
+    --blue-agent: #4257b2;
+    --cyan-agent: #4257b2;
+    --violet-agent: #7b4fb8;
+    --orange-agent: #7b4fb8;
+    --brown-agent: #4e5670;
+    --accent: #4257b2;
+    --accent-bright: #35479a;
+    --accent-rgb: 66 87 178;
+    --accent-bright-rgb: 53 71 154;
+    --green-agent-rgb: 63 125 85;
+    --red-agent-rgb: 176 63 66;
+    --amber-agent-rgb: 150 116 29;
+    --blue-agent-rgb: 66 87 178;
+    --cyan-agent-rgb: 66 87 178;
+    --violet-agent-rgb: 123 79 184;
+    --orange-agent-rgb: 123 79 184;
+    --brown-agent-rgb: 78 86 112;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #4257b2;
+    --syntax-string: #3f7d55;
+    --syntax-number: #7b4fb8;
+    --syntax-comment: #828aa4;
+    --syntax-function: #4257b2;
+    --syntax-variable: #1b1f2e;
+    --syntax-operator: #96741d;
+    --syntax-constant: #663e9d;
+}
+
+:root[data-palette="indigo"][data-theme="dark"],
+  html.dark:root[data-palette="indigo"] {
+    --bg-page: #0e1119;
+    --bg-card: #161a26;
+    --bg-card-hover: #252b3d;
+    --border-color: rgba(49, 56, 77, 0.14);
+    --border-strong: rgba(49, 56, 77, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #e2e6f2;
+    --text-secondary: #a0a7bf;
+    --text-tertiary: #666d85;
+
+    --surface-0: #0e1119;
+    --surface-1: #161a26;
+    --surface-2: #1d2231;
+    --surface-3: #252b3d;
+    --surface-4: #252b3d;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #e2e6f2;
+    --text-muted: #a0a7bf;
+    --text-dim: #666d85;
+    --text-bright: #ffffff;
+
+    --primary: #7d8ff0;
+    --primary-hover: #96a5f5;
+    --primary-light: rgba(125, 143, 240, 0.15);
+    --secondary: #b18cf0;
+    --secondary-hover: #c4a5f5;
+    --secondary-light: rgba(177, 140, 240, 0.15);
+
+    --success: #6fbb8a;
+    --success-bg: rgba(111, 187, 138, 0.13);
+    --warning: #dcb45f;
+    --warning-bg: rgba(220, 180, 95, 0.13);
+    --error: #ea7a7d;
+    --error-bg: rgba(234, 122, 125, 0.13);
+    --info: #7d8ff0;
+    --info-bg: rgba(125, 143, 240, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 125 143 240;
+    --primary-hover-rgb: 150 165 245;
+    --secondary-rgb: 177 140 240;
+    --success-rgb: 111 187 138;
+    --warning-rgb: 220 180 95;
+    --error-rgb: 234 122 125;
+    --info-rgb: 125 143 240;
+    --text-rgb: 226 230 242;
+    --text-muted-rgb: 160 167 191;
+    --text-dim-rgb: 102 109 133;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 14 17 25;
+    --surface-1-rgb: 22 26 38;
+    --surface-2-rgb: 29 34 49;
+    --surface-3-rgb: 37 43 61;
+    --surface-4-rgb: 37 43 61;
+    --border-rgb: 49 56 77;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #6fbb8a;
+    --red-agent: #ea7a7d;
+    --amber-agent: #dcb45f;
+    --blue-agent: #7d8ff0;
+    --cyan-agent: #7d8ff0;
+    --violet-agent: #b18cf0;
+    --orange-agent: #b18cf0;
+    --brown-agent: #a0a7bf;
+    --accent: #7d8ff0;
+    --accent-bright: #96a5f5;
+    --accent-rgb: 125 143 240;
+    --accent-bright-rgb: 150 165 245;
+    --green-agent-rgb: 111 187 138;
+    --red-agent-rgb: 234 122 125;
+    --amber-agent-rgb: 220 180 95;
+    --blue-agent-rgb: 125 143 240;
+    --cyan-agent-rgb: 125 143 240;
+    --violet-agent-rgb: 177 140 240;
+    --orange-agent-rgb: 177 140 240;
+    --brown-agent-rgb: 160 167 191;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #7d8ff0;
+    --syntax-string: #6fbb8a;
+    --syntax-number: #b18cf0;
+    --syntax-comment: #666d85;
+    --syntax-function: #7d8ff0;
+    --syntax-variable: #e2e6f2;
+    --syntax-operator: #dcb45f;
+    --syntax-constant: #c4a5f5;
+}
+
+/* ===== Graphite — Pure neutral greys. Hierarchy carried by contrast, not colour. ===== */
+:root[data-palette="graphite"] {
+    --bg-page: #f4f4f5;
+    --bg-card: #ffffff;
+    --bg-card-hover: #e2e2e5;
+    --border-color: rgba(203, 203, 208, 0.5);
+    --border-strong: rgba(203, 203, 208, 0.85);
+    --shadow-card: 0 1px 2px rgba(24, 24, 27, 0.05), 0 4px 14px rgba(24, 24, 27, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(24, 24, 27, 0.09), 0 12px 32px rgba(24, 24, 27, 0.13);
+    --text-primary: #1f1f22;
+    --text-secondary: #56565c;
+    --text-tertiary: #8a8a92;
+
+    --surface-0: #f4f4f5;
+    --surface-1: #ffffff;
+    --surface-2: #ebebed;
+    --surface-3: #e2e2e5;
+    --surface-4: #e2e2e5;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #1f1f22;
+    --text-muted: #56565c;
+    --text-dim: #8a8a92;
+    --text-bright: #0a0a0c;
+
+    --primary: #3f6ad8;
+    --primary-hover: #3358bd;
+    --primary-light: rgba(63, 106, 216, 0.12);
+    --secondary: #6b7280;
+    --secondary-hover: #565c68;
+    --secondary-light: rgba(107, 114, 128, 0.1);
+
+    --success: #3f7d55;
+    --success-bg: rgba(63, 125, 85, 0.13);
+    --warning: #96741d;
+    --warning-bg: rgba(150, 116, 29, 0.13);
+    --error: #b03f42;
+    --error-bg: rgba(176, 63, 66, 0.13);
+    --info: #3f6ad8;
+    --info-bg: rgba(63, 106, 216, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 63 106 216;
+    --primary-hover-rgb: 51 88 189;
+    --secondary-rgb: 107 114 128;
+    --success-rgb: 63 125 85;
+    --warning-rgb: 150 116 29;
+    --error-rgb: 176 63 66;
+    --info-rgb: 63 106 216;
+    --text-rgb: 31 31 34;
+    --text-muted-rgb: 86 86 92;
+    --text-dim-rgb: 138 138 146;
+    --text-bright-rgb: 10 10 12;
+    --surface-0-rgb: 244 244 245;
+    --surface-1-rgb: 255 255 255;
+    --surface-2-rgb: 235 235 237;
+    --surface-3-rgb: 226 226 229;
+    --surface-4-rgb: 226 226 229;
+    --border-rgb: 203 203 208;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #3f7d55;
+    --red-agent: #b03f42;
+    --amber-agent: #96741d;
+    --blue-agent: #3f6ad8;
+    --cyan-agent: #3f6ad8;
+    --violet-agent: #6b7280;
+    --orange-agent: #6b7280;
+    --brown-agent: #56565c;
+    --accent: #3f6ad8;
+    --accent-bright: #3358bd;
+    --accent-rgb: 63 106 216;
+    --accent-bright-rgb: 51 88 189;
+    --green-agent-rgb: 63 125 85;
+    --red-agent-rgb: 176 63 66;
+    --amber-agent-rgb: 150 116 29;
+    --blue-agent-rgb: 63 106 216;
+    --cyan-agent-rgb: 63 106 216;
+    --violet-agent-rgb: 107 114 128;
+    --orange-agent-rgb: 107 114 128;
+    --brown-agent-rgb: 86 86 92;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #3f6ad8;
+    --syntax-string: #3f7d55;
+    --syntax-number: #6b7280;
+    --syntax-comment: #8a8a92;
+    --syntax-function: #3f6ad8;
+    --syntax-variable: #1f1f22;
+    --syntax-operator: #96741d;
+    --syntax-constant: #565c68;
+}
+
+:root[data-palette="graphite"][data-theme="dark"],
+  html.dark:root[data-palette="graphite"] {
+    --bg-page: #121214;
+    --bg-card: #1a1a1d;
+    --bg-card-hover: #292930;
+    --border-color: rgba(53, 53, 60, 0.14);
+    --border-strong: rgba(53, 53, 60, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #e8e8ea;
+    --text-secondary: #a1a1a8;
+    --text-tertiary: #6a6a72;
+
+    --surface-0: #121214;
+    --surface-1: #1a1a1d;
+    --surface-2: #212125;
+    --surface-3: #292930;
+    --surface-4: #292930;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #e8e8ea;
+    --text-muted: #a1a1a8;
+    --text-dim: #6a6a72;
+    --text-bright: #ffffff;
+
+    --primary: #7c9df5;
+    --primary-hover: #95b1f8;
+    --primary-light: rgba(124, 157, 245, 0.15);
+    --secondary: #9ca3af;
+    --secondary-hover: #b4bac4;
+    --secondary-light: rgba(156, 163, 175, 0.15);
+
+    --success: #6fbb8a;
+    --success-bg: rgba(111, 187, 138, 0.13);
+    --warning: #dcb45f;
+    --warning-bg: rgba(220, 180, 95, 0.13);
+    --error: #ea7a7d;
+    --error-bg: rgba(234, 122, 125, 0.13);
+    --info: #7c9df5;
+    --info-bg: rgba(124, 157, 245, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 124 157 245;
+    --primary-hover-rgb: 149 177 248;
+    --secondary-rgb: 156 163 175;
+    --success-rgb: 111 187 138;
+    --warning-rgb: 220 180 95;
+    --error-rgb: 234 122 125;
+    --info-rgb: 124 157 245;
+    --text-rgb: 232 232 234;
+    --text-muted-rgb: 161 161 168;
+    --text-dim-rgb: 106 106 114;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 18 18 20;
+    --surface-1-rgb: 26 26 29;
+    --surface-2-rgb: 33 33 37;
+    --surface-3-rgb: 41 41 48;
+    --surface-4-rgb: 41 41 48;
+    --border-rgb: 53 53 60;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #6fbb8a;
+    --red-agent: #ea7a7d;
+    --amber-agent: #dcb45f;
+    --blue-agent: #7c9df5;
+    --cyan-agent: #7c9df5;
+    --violet-agent: #9ca3af;
+    --orange-agent: #9ca3af;
+    --brown-agent: #a1a1a8;
+    --accent: #7c9df5;
+    --accent-bright: #95b1f8;
+    --accent-rgb: 124 157 245;
+    --accent-bright-rgb: 149 177 248;
+    --green-agent-rgb: 111 187 138;
+    --red-agent-rgb: 234 122 125;
+    --amber-agent-rgb: 220 180 95;
+    --blue-agent-rgb: 124 157 245;
+    --cyan-agent-rgb: 124 157 245;
+    --violet-agent-rgb: 156 163 175;
+    --orange-agent-rgb: 156 163 175;
+    --brown-agent-rgb: 161 161 168;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #7c9df5;
+    --syntax-string: #6fbb8a;
+    --syntax-number: #9ca3af;
+    --syntax-comment: #6a6a72;
+    --syntax-function: #7c9df5;
+    --syntax-variable: #e8e8ea;
+    --syntax-operator: #dcb45f;
+    --syntax-constant: #b4bac4;
+}
+
+/* ===== Classic — The original warm paper and spice-gold. Kept exactly as it was. ===== */
+:root[data-palette="classic"] {
+    --bg-page: #f6f5f2;
+    --bg-card: #fffffe;
+    --bg-card-hover: #eeece7;
+    --border-color: rgba(218, 213, 204, 0.5);
+    --border-strong: rgba(218, 213, 204, 0.85);
+    --shadow-card: 0 1px 2px rgba(30, 26, 20, 0.05), 0 4px 14px rgba(30, 26, 20, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(30, 26, 20, 0.09), 0 12px 32px rgba(30, 26, 20, 0.13);
+    --text-primary: #1b1a16;
+    --text-secondary: #6a655c;
+    --text-tertiary: #9a958a;
+
+    --surface-0: #f6f5f2;
+    --surface-1: #fffffe;
+    --surface-2: #f4f2ee;
+    --surface-3: #eeece7;
+    --surface-4: #eeece7;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #1b1a16;
+    --text-muted: #6a655c;
+    --text-dim: #9a958a;
+    --text-bright: #0c0c0f;
+
+    --primary: #bd7d1c;
+    --primary-hover: #a56a12;
+    --primary-light: rgba(189, 125, 28, 0.12);
+    --secondary: #cb4b16;
+    --secondary-hover: #b33f0f;
+    --secondary-light: rgba(203, 75, 22, 0.1);
+
+    --success: #859900;
+    --success-bg: rgba(133, 153, 0, 0.13);
+    --warning: #b58900;
+    --warning-bg: rgba(181, 137, 0, 0.13);
+    --error: #dc322f;
+    --error-bg: rgba(220, 50, 47, 0.13);
+    --info: #268bd2;
+    --info-bg: rgba(38, 139, 210, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 189 125 28;
+    --primary-hover-rgb: 165 106 18;
+    --secondary-rgb: 203 75 22;
+    --success-rgb: 133 153 0;
+    --warning-rgb: 181 137 0;
+    --error-rgb: 220 50 47;
+    --info-rgb: 38 139 210;
+    --text-rgb: 27 26 22;
+    --text-muted-rgb: 106 101 92;
+    --text-dim-rgb: 154 149 138;
+    --text-bright-rgb: 12 12 15;
+    --surface-0-rgb: 246 245 242;
+    --surface-1-rgb: 255 255 254;
+    --surface-2-rgb: 244 242 238;
+    --surface-3-rgb: 238 236 231;
+    --surface-4-rgb: 238 236 231;
+    --border-rgb: 218 213 204;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #859900;
+    --red-agent: #dc322f;
+    --amber-agent: #b58900;
+    --blue-agent: #268bd2;
+    --cyan-agent: #268bd2;
+    --violet-agent: #cb4b16;
+    --orange-agent: #cb4b16;
+    --brown-agent: #6a655c;
+    --accent: #bd7d1c;
+    --accent-bright: #a56a12;
+    --accent-rgb: 189 125 28;
+    --accent-bright-rgb: 165 106 18;
+    --green-agent-rgb: 133 153 0;
+    --red-agent-rgb: 220 50 47;
+    --amber-agent-rgb: 181 137 0;
+    --blue-agent-rgb: 38 139 210;
+    --cyan-agent-rgb: 38 139 210;
+    --violet-agent-rgb: 203 75 22;
+    --orange-agent-rgb: 203 75 22;
+    --brown-agent-rgb: 106 101 92;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #bd7d1c;
+    --syntax-string: #859900;
+    --syntax-number: #cb4b16;
+    --syntax-comment: #9a958a;
+    --syntax-function: #268bd2;
+    --syntax-variable: #1b1a16;
+    --syntax-operator: #b58900;
+    --syntax-constant: #b33f0f;
+}
+
+:root[data-palette="classic"][data-theme="dark"],
+  html.dark:root[data-palette="classic"] {
+    --bg-page: #100f0c;
+    --bg-card: #1a1815;
+    --bg-card-hover: #24211c;
+    --border-color: rgba(51, 47, 40, 0.14);
+    --border-strong: rgba(51, 47, 40, 0.26);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
+    --text-primary: #ece6da;
+    --text-secondary: #a39c8c;
+    --text-tertiary: #726b5c;
+
+    --surface-0: #100f0c;
+    --surface-1: #1a1815;
+    --surface-2: #201d19;
+    --surface-3: #24211c;
+    --surface-4: #24211c;
+
+    --border: var(--border-color);
+    --border-bright: var(--border-strong);
+
+    --text: #ece6da;
+    --text-muted: #a39c8c;
+    --text-dim: #726b5c;
+    --text-bright: #ffffff;
+
+    --primary: #e0a94a;
+    --primary-hover: #efbb63;
+    --primary-light: rgba(224, 169, 74, 0.15);
+    --secondary: #cb4b16;
+    --secondary-hover: #e55a1f;
+    --secondary-light: rgba(203, 75, 22, 0.15);
+
+    --success: #8a9a2b;
+    --success-bg: rgba(138, 154, 43, 0.13);
+    --warning: #d9a441;
+    --warning-bg: rgba(217, 164, 65, 0.13);
+    --error: #dc4a3f;
+    --error-bg: rgba(220, 74, 63, 0.13);
+    --info: #4a9fd4;
+    --info-bg: rgba(74, 159, 212, 0.13);
+
+    /* Channel mirrors — derived, never hand-written. See the header. */
+    --primary-rgb: 224 169 74;
+    --primary-hover-rgb: 239 187 99;
+    --secondary-rgb: 203 75 22;
+    --success-rgb: 138 154 43;
+    --warning-rgb: 217 164 65;
+    --error-rgb: 220 74 63;
+    --info-rgb: 74 159 212;
+    --text-rgb: 236 230 218;
+    --text-muted-rgb: 163 156 140;
+    --text-dim-rgb: 114 107 92;
+    --text-bright-rgb: 255 255 255;
+    --surface-0-rgb: 16 15 12;
+    --surface-1-rgb: 26 24 21;
+    --surface-2-rgb: 32 29 25;
+    --surface-3-rgb: 36 33 28;
+    --surface-4-rgb: 36 33 28;
+    --border-rgb: 51 47 40;
+
+    /* The agent-status colours components reference by name. */
+    --green-agent: #8a9a2b;
+    --red-agent: #dc4a3f;
+    --amber-agent: #d9a441;
+    --blue-agent: #4a9fd4;
+    --cyan-agent: #4a9fd4;
+    --violet-agent: #cb4b16;
+    --orange-agent: #cb4b16;
+    --brown-agent: #a39c8c;
+    --accent: #e0a94a;
+    --accent-bright: #efbb63;
+    --accent-rgb: 224 169 74;
+    --accent-bright-rgb: 239 187 99;
+    --green-agent-rgb: 138 154 43;
+    --red-agent-rgb: 220 74 63;
+    --amber-agent-rgb: 217 164 65;
+    --blue-agent-rgb: 74 159 212;
+    --cyan-agent-rgb: 74 159 212;
+    --violet-agent-rgb: 203 75 22;
+    --orange-agent-rgb: 203 75 22;
+    --brown-agent-rgb: 163 156 140;
+
+    /* Syntax highlighting, derived so every theme is internally coherent. */
+    --syntax-keyword: #e0a94a;
+    --syntax-string: #8a9a2b;
+    --syntax-number: #cb4b16;
+    --syntax-comment: #726b5c;
+    --syntax-function: #4a9fd4;
+    --syntax-variable: #ece6da;
+    --syntax-operator: #d9a441;
+    --syntax-constant: #e55a1f;
+}

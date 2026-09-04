@@ -1,0 +1,210 @@
+.terminal-output {
+  position: relative;
+  margin: 0.75rem 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-0);
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.8125rem;
+  transition: all 0.2s ease;
+  /* Elevated minimal design - subtle shadow instead of heavy border */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 0 1px var(--border);
+}
+
+/* A running command gets a minimal orange accent - just the top border */
+.terminal-output.running {
+  box-shadow: 
+    0 2px 8px rgba(255, 117, 24, 0.12),
+    0 0 0 1px var(--border),
+    inset 0 2px 0 0 #ff7518;
+}
+
+.terminal-output.error {
+  box-shadow: 
+    0 2px 8px rgba(239, 68, 68, 0.12),
+    0 0 0 1px var(--error),
+    inset 0 2px 0 0 var(--error);
+}
+
+.terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.625rem 0.875rem;
+  background: var(--surface-1);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-header:hover {
+  background: var(--surface-2);
+}
+
+.terminal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.terminal-icon {
+  color: var(--accent);
+  font-size: 0.6875rem;
+  opacity: 0.8;
+}
+
+.terminal-command {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+.terminal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.6875rem;
+}
+
+.terminal-time {
+  color: var(--text-dim);
+  font-family: monospace;
+  tabular-nums: true;
+}
+
+.terminal-duration {
+  color: var(--accent-bright);
+  font-weight: 600;
+  font-family: monospace;
+  tabular-nums: true;
+}
+
+.terminal-exit-code {
+  padding: 0.125rem 0.5rem;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  font-family: monospace;
+  tabular-nums: true;
+}
+
+.terminal-exit-code.success {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
+  border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
+}
+
+.terminal-exit-code.error {
+  background: color-mix(in srgb, var(--error) 15%, transparent);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 25%, transparent);
+}
+
+.terminal-running {
+  color: #ff7518;
+  font-style: normal;
+  font-weight: 500;
+  animation: terminalPulse 2s ease-in-out infinite;
+}
+
+@keyframes terminalPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.terminal-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0.25rem;
+  font-size: 0.6875rem;
+  transition: all 0.15s ease;
+  opacity: 0.6;
+}
+
+.terminal-toggle:hover {
+  color: var(--text);
+  opacity: 1;
+}
+
+.terminal-content {
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--surface-0);
+  /* Smooth scroll behavior */
+  scroll-behavior: smooth;
+}
+
+.terminal-output-text {
+  margin: 0;
+  padding: 0.875rem;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.terminal-line {
+  margin: 0;
+  padding: 0;
+}
+
+.terminal-line.stdout {
+  color: var(--text);
+}
+
+/*
+ * stderr, WITHOUT claiming everything on it is broken.
+ *
+ * This used to be solid --error at weight 500, which meant a tsc progress line,
+ * an npm notice and an actual stack trace were painted identically. A reader
+ * who sees red on lines that turn out to be fine stops reading red. So a plain
+ * stderr line is merely warmer than stdout, and the log colouriser paints the
+ * lines that genuinely are errors.
+ */
+.terminal-line.stderr-plain {
+  color: var(--text-muted);
+}
+
+.terminal-line.stderr {
+  color: var(--error);
+  font-weight: 500;
+}
+
+.terminal-line.terminal-waiting {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Minimal scrollbar styling for terminal content */
+.terminal-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.terminal-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.terminal-content::-webkit-scrollbar-thumb:hover {
+  background: var(--border-bright);
+}
+

@@ -1,0 +1,547 @@
+/**
+ * Glassmorphic Design System
+ * 
+ * Modern, responsive design with glassmorphism effects
+ * - Frosted glass backgrounds with backdrop blur
+ * - Smooth animations and transitions
+ * - Responsive breakpoints
+ * - Dark/light theme support
+ * - Accessibility-first approach
+ */
+
+/* ============================================
+   GLASSMORPHIC CONTAINERS
+   ============================================ */
+
+.glass {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px) saturate(180%);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 
+    0 8px 32px 0 rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px) saturate(200%);
+  -webkit-backdrop-filter: blur(20px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 
+    0 12px 40px 0 rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.3);
+}
+
+.glass-subtle {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(5px) saturate(150%);
+  -webkit-backdrop-filter: blur(5px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    0 4px 16px 0 rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Dark theme glassmorphism */
+html.dark .glass {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    0 8px 32px 0 rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+html.dark .glass-strong {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 
+    0 12px 40px 0 rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
+}
+
+html.dark .glass-subtle {
+  background: rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 
+    0 4px 16px 0 rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================
+   FLOATING CONTAINERS (Enhanced)
+   ============================================ */
+
+.floating-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  position: relative;
+  overflow: hidden;
+}
+
+.floating-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.floating-container:hover {
+  /* No hover transform - stable UI */
+}
+
+.floating-container:hover::before {
+  opacity: 0;
+}
+
+/* Glassmorphic floating container */
+.floating-glass {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 1rem;
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.floating-glass:hover {
+  /* No hover transform - stable UI */
+}
+
+html.dark .floating-glass {
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+html.dark .floating-glass:hover {
+  /* No hover transform - stable UI */
+}
+
+/* ============================================
+   MODERN BUTTONS
+   ============================================ */
+
+.btn-modern {
+  position: relative;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border: none;
+  overflow: hidden;
+}
+
+.btn-modern::before {
+  content: '';
+  position: absolute;
+  display: none;
+}
+
+.btn-modern:hover::before {
+  display: none;
+}
+
+.btn-modern:active {
+  transform: none;
+}
+
+.btn-glass {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.btn-glass:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+html.dark .btn-glass {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+html.dark .btn-glass:hover {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* ============================================
+   MODERN INPUTS
+   ============================================ */
+
+.input-modern {
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+  color: var(--text);
+  width: 100%;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.input-modern::placeholder {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.input-modern:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 
+    0 0 0 4px var(--primary-light),
+    0 4px 16px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.input-glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+  color: var(--text);
+  width: 100%;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.input-glass:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 4px var(--primary-light);
+}
+
+html.dark .input-glass {
+  background: rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+html.dark .input-glass:focus {
+  background: rgba(0, 0, 0, 0.15);
+  border-color: var(--primary);
+}
+
+/* ============================================
+   MODERN CARDS
+   ============================================ */
+
+.card-modern {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-card);
+}
+
+.card-modern:hover {
+  /* No hover transform - stable UI */
+}
+
+.card-glass {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.card-glass:hover {
+  /* No hover transform - stable UI */
+}
+
+html.dark .card-glass {
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================
+   RESPONSIVE UTILITIES
+   ============================================ */
+
+/* Mobile-first breakpoints */
+@media (max-width: 640px) {
+  .floating-container,
+  .floating-glass,
+  .card-modern,
+  .card-glass {
+    border-radius: 0.75rem;
+    padding: 1rem;
+  }
+  
+  .btn-modern {
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+  }
+  
+  /* Reduce blur on mobile for performance */
+  .glass,
+  .glass-strong,
+  .glass-subtle,
+  .floating-glass,
+  .card-glass,
+  .btn-glass,
+  .input-glass {
+    backdrop-filter: blur(5px) saturate(150%);
+    -webkit-backdrop-filter: blur(5px) saturate(150%);
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .floating-container,
+  .floating-glass {
+    border-radius: 0.875rem;
+  }
+}
+
+@media (min-width: 1025px) {
+  .floating-container,
+  .floating-glass {
+    border-radius: 1rem;
+  }
+}
+
+/* ============================================
+   MODERN SCROLLBARS
+   ============================================ */
+
+.scrollbar-modern::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.scrollbar-modern::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+}
+
+.scrollbar-modern::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(181, 137, 0, 0.3),
+    rgba(181, 137, 0, 0.5)
+  );
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.scrollbar-modern::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(181, 137, 0, 0.5),
+    rgba(181, 137, 0, 0.7)
+  );
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ============================================
+   GRADIENT BACKGROUNDS
+   ============================================ */
+
+.gradient-warm {
+  background: linear-gradient(
+    135deg,
+    #fdf6e3 0%,
+    #f5f0e8 50%,
+    #ede6d6 100%
+  );
+}
+
+html.dark .gradient-warm {
+  background: linear-gradient(
+    135deg,
+    #002b36 0%,
+    #003847 50%,
+    #004454 100%
+  );
+}
+
+.gradient-accent {
+  background: linear-gradient(
+    135deg,
+    var(--primary) 0%,
+    var(--secondary) 100%
+  );
+}
+
+.gradient-mesh {
+  background: 
+    radial-gradient(at 0% 0%, rgba(181, 137, 0, 0.1) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(203, 75, 22, 0.1) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(181, 137, 0, 0.1) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(203, 75, 22, 0.1) 0px, transparent 50%);
+}
+
+/* ============================================
+   MODERN SHADOWS
+   ============================================ */
+
+.shadow-soft {
+  box-shadow: 
+    0 2px 8px rgba(0, 0, 0, 0.04),
+    0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.shadow-medium {
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.shadow-strong {
+  box-shadow: 
+    0 8px 24px rgba(0, 0, 0, 0.08),
+    0 16px 48px rgba(0, 0, 0, 0.1);
+}
+
+.shadow-glow {
+  box-shadow: 
+    0 0 20px rgba(181, 137, 0, 0.3),
+    0 0 40px rgba(181, 137, 0, 0.2);
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .floating-container,
+  .floating-glass,
+  .card-modern,
+  .card-glass,
+  .btn-modern,
+  .btn-glass,
+  .input-modern,
+  .input-glass {
+    transition: none !important;
+    animation: none !important;
+  }
+  
+  .floating-container:hover,
+  .floating-glass:hover,
+  .card-modern:hover,
+  .card-glass:hover {
+    transform: none !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .glass,
+  .glass-strong,
+  .glass-subtle,
+  .floating-glass,
+  .card-glass,
+  .btn-glass,
+  .input-glass {
+    background: var(--surface-2);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 1px solid var(--border);
+  }
+}
+
+/* Focus visible for keyboard navigation */
+.floating-container:focus-visible,
+.card-modern:focus-visible,
+.card-glass:focus-visible,
+.btn-modern:focus-visible,
+.btn-glass:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+.blur-sm {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.blur-md {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.blur-lg {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.blur-xl {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.saturate-150 {
+  backdrop-filter: saturate(150%);
+  -webkit-backdrop-filter: saturate(150%);
+}
+
+.saturate-200 {
+  backdrop-filter: saturate(200%);
+  -webkit-backdrop-filter: saturate(200%);
+}
+
+/* ============================================
+   PERFORMANCE OPTIMIZATIONS
+   ============================================ */
+
+/* GPU acceleration for smooth animations */
+.floating-container,
+.floating-glass,
+.card-modern,
+.card-glass,
+.btn-modern,
+.btn-glass {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Disable GPU acceleration when not needed */
+.floating-container:not(:hover),
+.floating-glass:not(:hover),
+.card-modern:not(:hover),
+.card-glass:not(:hover) {
+  will-change: auto;
+}

@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+desktop/release/
+*.tsbuildinfo
+
+# Local data — the database, the credential vault, cloned repositories.
+# Never commit these: the vault holds encrypted secrets and the database holds
+# every thread you have ever run.
+.bubbly/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+backend/logs/
+logs/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editor and OS
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Test output
+coverage/

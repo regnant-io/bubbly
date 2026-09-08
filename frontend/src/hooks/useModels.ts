@@ -69,8 +69,9 @@ export function useModels() {
     let cancelled = false;
     setResolvedVision(null);
     if (!activeModel) return;
-    // Claude/Gemini/OpenRouter are always vision; skip the round-trip.
-    if (provider === 'claude' || provider === 'gemini' || provider === 'openrouter') { setResolvedVision(true); return; }
+    // Claude/Gemini are fixed capabilities. OpenRouter is a marketplace and
+    // must resolve the selected model's actual input modalities.
+    if (provider === 'claude' || provider === 'gemini') { setResolvedVision(true); return; }
     fetchModelVision(provider, activeModel)
       .then((v) => { if (!cancelled) setResolvedVision(v); })
       .catch(() => { if (!cancelled) setResolvedVision(null); });

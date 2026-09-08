@@ -45,4 +45,11 @@ describe('terminalManager reuse / idle', () => {
   it('reports a dead/unknown terminal as not idle', () => {
     expect(terminalManager.isIdle('does-not-exist')).toBe(false);
   });
+
+  it('never reuses a terminal containing an unsubmitted user command', () => {
+    const ws = os.tmpdir();
+    const terminal = terminalManager.acquireIdle({ workspacePath: ws });
+    terminalManager.write(terminal.id, 'npm run dev');
+    expect(terminalManager.isIdle(terminal.id, 0)).toBe(false);
+  });
 });

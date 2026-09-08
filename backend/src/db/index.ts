@@ -3,6 +3,37 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { runMigrations } from './migrationRunner';
+import * as vault from '../secrets/vault';
+
+/** Model credentials belong in the encrypted vault, never the settings DB. */
+const SECRET_SETTINGS = new Map([
+  ['anthropicApiKey', 'model:anthropic:api-key'],
+  ['geminiApiKey', 'model:gemini:api-key'],
+  ['openrouterApiKey', 'model:openrouter:api-key'],
+]);
+
+function readSecretSetting(db: Database.Database, key: string, legacyValue: string): string {
+  // Unit tests deliberately use isolated SQLite databases and should not read
+  // or mutate the developer's real credential vault.
+  if (process.env.NODE_ENV === 'test') return legacyValue;
+  const secretName = SECRET_SETTINGS.get(key);
+  if (!secretName) return legacyValue;
+
+  const stored = vault.getSecret(secretName);
+  if (stored !== null) {
+    if (legacyValue) db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('', key);
+    return stored;
+  }
+
+  // Transparently migrate installations that predate vault-backed model keys.
+  // Keep the legacy value if a passphrase-locked vault is not currently open;
+  // erasing it in that state would lose the credential.
+  if (legacyValue && vault.isUnlocked()) {
+    vault.setSecret(secretName, legacyValue);
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('', key);
+  }
+  return legacyValue;
+}
 
 /**
  * Database location.
@@ -155,16 +186,25 @@ function initSchema(db: Database.Database): void {
 export function getAllSettings(): Record<string, string> {
   const db = getDb();
   const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return Object.fromEntries(rows.map((r) => [r.key, readSecretSetting(db, r.key, r.value)]));
 }
 
 export function getSetting(key: string): string {
   const db = getDb();
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
-  return row?.value ?? '';
+  return readSecretSetting(db, key, row?.value ?? '');
 }
 
 export function setSetting(key: string, value: string): void {
   const db = getDb();
+  const secretName = SECRET_SETTINGS.get(key);
+  if (secretName && process.env.NODE_ENV !== 'test') {
+    if (value) vault.setSecret(secretName, value);
+    else vault.deleteSecret(secretName);
+    // Leave a row so old code/default discovery still sees the setting, but
+    // never leave credential material in the SQLite file.
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, '');
+    return;
+  }
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
 }

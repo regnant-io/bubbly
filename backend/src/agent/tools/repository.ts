@@ -26,7 +26,7 @@
 import type { ToolDefinition } from '../../types';
 import { logger } from '../../utils/logger';
 import {
-  cloneOrReuse, parseRepoUrl, pushCurrentBranch, redact, repoStatus, runGit,
+  cloneOrReuse, isSafeBranchName, parseRepoUrl, pushCurrentBranch, redact, repoStatus, runGit,
 } from '../../workspace/gitSource';
 import {
   commentOnIssue, commentOnPullRequest, createPullRequest, getIssue, getPullRequest,
@@ -169,8 +169,8 @@ async function executeRepo(args: Record<string, unknown>, workspacePath: string)
     case 'branch': {
       const name = String(args.name ?? '').trim();
       if (!name) return 'FAILED: branch needs a name.';
-      if (!/^[\w./-]+$/.test(name)) {
-        return `FAILED: "${name}" is not a valid branch name. Use letters, digits, dots, dashes, underscores and slashes.`;
+      if (!isSafeBranchName(name)) {
+        return `FAILED: "${name}" is not a safe Git branch name.`;
       }
       const existing = runGit(['rev-parse', '--verify', name], workspacePath);
       const r = existing.ok

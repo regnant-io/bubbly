@@ -62,6 +62,7 @@ let mainWindow = null;
 let backendProc = null;
 let backendPort = null;
 let isQuitting = false;
+let previewSessionConfigured = false;
 
 /**
  * THE TRAY, AND WHY CLOSING A WINDOW NO LONGER STOPS THE WORK.
@@ -568,6 +569,16 @@ async function restartBackend() {
  * someone else's half-finished thread pointed at unfamiliar code.
  */
 function createWindow(port, options = {}) {
+  if (!previewSessionConfigured) {
+    previewSessionConfigured = true;
+    const previewSession = session.fromPartition('bubbly-preview');
+    // A code preview should not silently gain camera, microphone, location,
+    // notifications, MIDI or clipboard privileges. If Bubbly later exposes a
+    // permission UI, individual grants can be made explicit there.
+    previewSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+    previewSession.setPermissionCheckHandler(() => false);
+  }
+
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -598,7 +609,7 @@ function createWindow(port, options = {}) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       // Enable <webview> so the Bubbly Preview panel can embed a live browser.
       webviewTag: true,
       // Keep timers/paints running when the OS window loses focus, so the agent
@@ -618,15 +629,20 @@ function createWindow(port, options = {}) {
   });
 
   // Open external links in the user's browser, not inside the app.
+  const appOrigins = new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
+  const isAppUrl = (raw) => {
+    try { return appOrigins.has(new URL(raw).origin); } catch { return false; }
+  };
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      const sameOrigin = url.startsWith(`http://localhost:${port}`) || url.startsWith(`http://127.0.0.1:${port}`);
-      if (!sameOrigin) {
-        shell.openExternal(url);
-        return { action: 'deny' };
-      }
-    }
-    return { action: 'allow' };
+    if (isAppUrl(url)) return { action: 'allow' };
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    // Deny file:, javascript:, data: and custom protocols unconditionally.
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
 
   win.loadURL(`http://127.0.0.1:${port}/`);

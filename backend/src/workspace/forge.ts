@@ -150,6 +150,25 @@ async function request<T>(
   }
 }
 
+/** Fetch bounded offset pages without silently truncating large reviews. */
+async function requestAllPages<T>(
+  target: ForgeTarget,
+  pathname: string,
+  query: Record<string, string | number | undefined> = {},
+  maxPages = 50,
+): Promise<T[]> {
+  const all: T[] = [];
+  const perPage = 100;
+  for (let page = 1; page <= maxPages; page++) {
+    const batch = await request<T[]>(target, pathname, {
+      query: { ...query, per_page: perPage, page },
+    });
+    all.push(...batch);
+    if (batch.length < perPage) break;
+  }
+  return all;
+}
+
 /**
  * Say what a status code MEANS here, not what it means in general.
  *
@@ -205,8 +224,8 @@ export async function listPullRequests(
 export async function getPullRequest(target: ForgeTarget, number: number): Promise<PullRequest> {
   if (target.forge === 'github') {
     const pr = await request<Record<string, any>>(target, `/repos/${target.owner}/${target.repo}/pulls/${number}`);
-    const files = await request<Array<Record<string, any>>>(
-      target, `/repos/${target.owner}/${target.repo}/pulls/${number}/files`, { query: { per_page: 100 } },
+    const files = await requestAllPages<Record<string, any>>(
+      target, `/repos/${target.owner}/${target.repo}/pulls/${number}/files`,
     ).catch(() => []);
     return {
       ...githubPr(pr),
@@ -218,12 +237,12 @@ export async function getPullRequest(target: ForgeTarget, number: number): Promi
   }
 
   const mr = await request<Record<string, any>>(target, `/projects/${gitlabProjectId(target)}/merge_requests/${number}`);
-  const changes = await request<Record<string, any>>(
-    target, `/projects/${gitlabProjectId(target)}/merge_requests/${number}/changes`,
-  ).catch(() => ({ changes: [] }));
+  const changes = await requestAllPages<Record<string, any>>(
+    target, `/projects/${gitlabProjectId(target)}/merge_requests/${number}/diffs`,
+  ).catch(() => []);
   return {
     ...gitlabMr(mr),
-    changedFiles: (changes.changes ?? []).map((c: Record<string, any>) => ({
+    changedFiles: changes.map((c: Record<string, any>) => ({
       path: String(c.new_path ?? c.old_path),
       // GitLab does not give per-file counts on this endpoint; reporting 0 is
       // honest, inventing a number from the diff text would not be.

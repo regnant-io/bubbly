@@ -12,11 +12,22 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { resolveRemotePath, shellQuote } from './sshProvider';
-import { parseRepoUrl, clonePathFor, redact } from './gitSource';
+import { parseRepoUrl, clonePathFor, redact, isSafeBranchName } from './gitSource';
 import { parseSshConfig } from '../secrets/credentialSources';
 import { apiBase } from './forge';
+import { handlesRemotely } from './remoteTools';
 
 jest.mock('../db/index', () => ({ getSetting: () => 'false', getDb: () => { throw new Error('not used'); } }));
+
+describe('remote tool routing', () => {
+  it.each([
+    'get_repo_map', 'find_symbol', 'find_references', 'get_file_outline',
+    'gather_context', 'repo', 'forge', 'validate_changes',
+  ])('intercepts %s instead of falling through to the local filesystem', (tool) => {
+    expect(handlesRemotely(tool)).toBe(true);
+    expect(handlesRemotely(`function:${tool}`)).toBe(true);
+  });
+});
 
 describe('remote path containment', () => {
   const root = '/home/deploy/app';
@@ -92,6 +103,22 @@ describe('repository URL parsing', () => {
 
   it('understands an https URL with .git', () => {
     expect(parseRepoUrl('https://github.com/acme/widget.git')?.repo).toBe('widget');
+  });
+
+  it('turns forge browser sub-routes back into clone URLs', () => {
+    expect(parseRepoUrl('https://github.com/acme/widget/tree/feature/demo')).toMatchObject({
+      owner: 'acme', repo: 'widget', url: 'https://github.com/acme/widget.git',
+    });
+    expect(parseRepoUrl('https://gitlab.com/team/sub/project/-/tree/main/src')).toMatchObject({
+      owner: 'team/sub', repo: 'project', url: 'https://gitlab.com/team/sub/project.git',
+    });
+  });
+
+  it('rejects branch names that could become Git options or invalid refs', () => {
+    expect(isSafeBranchName('feature/better-preview')).toBe(true);
+    expect(isSafeBranchName('-c')).toBe(false);
+    expect(isSafeBranchName('main --upload-pack=evil')).toBe(false);
+    expect(isSafeBranchName('feature..other')).toBe(false);
   });
 
   it('understands the scp-style SSH form', () => {

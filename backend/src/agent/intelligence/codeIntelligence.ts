@@ -112,6 +112,9 @@ const MAX_INDEXED_FILES = 20_000;
 /** …and a wall-clock ceiling, for a tree that is slow rather than large (a
  *  network drive, a virtualised filesystem, a spinning disk). */
 const MAX_WALK_MS = 8_000;
+/** Includes changed-file parsing, not just discovery. A walk that stopped at
+ * eight seconds could previously spend minutes parsing its 20k discoveries. */
+const MAX_INDEX_BUILD_MS = 15_000;
 
 const CODE_EXTS = new Set([
   '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs',
@@ -239,11 +242,14 @@ function discoverCodeFiles(workspacePath: string): DiscoveryResult {
    * shallow view of everything rather than a deep view of one corner.
    */
   const queue: string[] = [workspacePath];
-  while (queue.length > 0) {
+  let queueIndex = 0;
+  while (queueIndex < queue.length) {
     if (out.length >= MAX_INDEXED_FILES) { truncated = true; reason = 'file-budget'; break; }
     if (Date.now() - startedAt > MAX_WALK_MS) { truncated = true; reason = 'time-budget'; break; }
 
-    const dir = queue.shift()!;
+    // Array.shift() copies every remaining element. On a wide monorepo that
+    // made this nominally linear BFS quadratic in the number of directories.
+    const dir = queue[queueIndex++];
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -347,7 +353,12 @@ export function buildIndex(workspacePath: string): WorkspaceIndex {
   const files = new Map<string, IndexedFile>();
 
   let reused = 0;
+  let buildTimedOut = discovery.truncated && discovery.reason === 'time-budget';
   for (const d of discovered) {
+    if (Date.now() - t0 > MAX_INDEX_BUILD_MS) {
+      buildTimedOut = true;
+      break;
+    }
     const cached = prevFiles?.get(d.rel);
     if (cached && cached.mtimeMs === d.mtimeMs && cached.size === d.size) {
       // Always take the freshly discovered absolute path — a persisted one is
@@ -405,6 +416,10 @@ export function buildIndex(workspacePath: string): WorkspaceIndex {
     truncated: discovery.truncated,
     truncationReason: discovery.reason,
   };
+  if (buildTimedOut) {
+    index.truncated = true;
+    index.truncationReason = 'time-budget';
+  }
   indexCache.set(abs, index);
 
   // Persist only when the on-disk copy would actually change: something was

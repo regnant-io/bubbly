@@ -409,6 +409,13 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
     const skip = new Set<string>();
     const folded = new Set<string>();
     for (const m of visibleMessages) {
+      // set_phase is control metadata. Its value is stamped onto subsequent
+      // steps; rendering it as another step made the phase UI describe itself
+      // and inflated every burst count.
+      if (m.type === 'tool_call' && m.tool === 'set_phase') {
+        skip.add(m.id);
+        continue;
+      }
       if (m.type === 'status' && HOUSEKEEPING.test(m.content.trim())) {
         skip.add(m.id);
         folded.add(m.id);

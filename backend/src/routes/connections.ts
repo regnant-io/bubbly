@@ -24,6 +24,8 @@ import {
 import { testSshConnection } from '../workspace/sshProvider';
 import { cloneOrReuse, parseRepoUrl, repoStatus } from '../workspace/gitSource';
 import { listRepositories, whoAmI, ForgeError } from '../workspace/forge';
+import { getDb } from '../db/index';
+import type { GitSource } from '../workspace/types';
 
 export const connectionsRouter = Router();
 
@@ -299,6 +301,36 @@ connectionsRouter.get('/forge/repos', async (req, res) => {
 });
 
 // --- Opening a repository ---------------------------------------------------
+
+/** Managed git workspaces used by recent sessions, newest first. */
+connectionsRouter.get('/repo/recent', (_req, res) => {
+  try {
+    const rows = getDb().prepare(`
+      SELECT source_config, MAX(updated_at) AS last_used_at
+        FROM sessions
+       WHERE source_kind = 'git' AND source_config IS NOT NULL
+       GROUP BY source_config
+       ORDER BY last_used_at DESC
+       LIMIT 20
+    `).all() as Array<{ source_config: string; last_used_at: string }>;
+
+    const seen = new Set<string>();
+    const repos: Array<{ source: GitSource; lastUsedAt: string }> = [];
+    for (const row of rows) {
+      try {
+        const source = JSON.parse(row.source_config) as GitSource;
+        if (source?.kind !== 'git' || !source.url || !source.localPath) continue;
+        const key = source.url.replace(/\.git$/, '').toLowerCase();
+        if (seen.has(key) || !fs.existsSync(source.localPath)) continue;
+        seen.add(key);
+        repos.push({ source, lastUsedAt: row.last_used_at });
+      } catch { /* one stale row must not hide the other recent repositories */ }
+    }
+    res.json({ repos });
+  } catch (err) {
+    fail(res, err, 500);
+  }
+});
 
 connectionsRouter.post('/repo/open', (req, res) => {
   const url = String(req.body?.url ?? '').trim();

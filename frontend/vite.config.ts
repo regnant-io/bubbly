@@ -12,6 +12,10 @@ export default defineConfig({
     // to pin it when you want a stable address; Vite prints the chosen URL on start.
     port: Number(process.env.FRONTEND_PORT) || (34000 + Math.floor(Math.random() * 1000)),
     strictPort: false,
+    // The preview resolver probes this header to identify Bubbly. Production
+    // responses already carry it from Express; without it the random Vite dev
+    // frontend was the remaining route to a recursive Bubbly-in-Bubbly clone.
+    headers: { 'X-Bubbly-Backend': '1' },
     proxy: {
       '/api': 'http://localhost:3001',
       '/ws': {

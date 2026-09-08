@@ -369,6 +369,7 @@ export type WSServerEvent =
   | { type: 'message_queued'; sessionId: string; message: string; depth: number }
   | { type: 'message_queue_rejected'; sessionId: string; message: string; reason: string; depth: number }
   | { type: 'queued_message_delivered'; sessionId: string; message: string }
+  | { type: 'queued_messages_returned'; sessionId: string; messages: string[] }
   /* --- What the agent is DOING right now, in its own words ---------------
      A burst of twenty tool calls is not twenty things; it is usually three or
      four: build the thing, find out why it broke, fix it, check. The agent

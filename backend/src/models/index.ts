@@ -107,5 +107,5 @@ export async function callModel(params: {
 
 export { listOllamaModels } from './ollama';
 export { listGeminiModels } from './gemini';
-export { listOpenRouterModels, getOpenRouterModelContext } from './openrouter';
+export { listOpenRouterModels, getOpenRouterModelContext, getOpenRouterModelVision } from './openrouter';
 export { StreamBuffer, type BufferConfig } from './streamBuffer';

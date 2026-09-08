@@ -277,6 +277,17 @@ body.tab-hidden * {
   100% { background-position: 0% 0; }
 }
 
+/* A restrained heartbeat beside the current phase. The text sweep carries
+   direction; this dot only says the phase is still alive. */
+@keyframes phaseDot {
+  0%, 100% { opacity: 0.42; transform: scale(0.82); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.phase-dot {
+  animation: phaseDot 1.25s ease-in-out infinite;
+}
+
 /* --- Sliding label -------------------------------------------------------
    The headline of a COLLAPSED tool-step group, which changes each time the
    agent starts another step ("Reading foo.ts" -> "Editing bar.ts").

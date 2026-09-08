@@ -63,6 +63,7 @@ interface PreviewClient {
 }
 
 const clients = new Map<string, PreviewClient>();
+let lastPreviewScreenshot: string | null = null;
 
 /** Any client that has ever advertised readiness, even if stale now — used to
  *  distinguish "no desktop app at all" (cold headless env) from "the window was
@@ -188,7 +189,7 @@ function saveDataUrlPng(dataUrl: string): string | undefined {
     const base64 = m ? m[2] : dataUrl;
     const buf = Buffer.from(base64, 'base64');
     if (buf.length === 0 || buf.length > 8_000_000) return undefined;
-    const file = path.join(os.tmpdir(), `bubbly_preview_${Date.now()}.png`);
+    const file = path.join(os.tmpdir(), `bubbly_preview_${uuidv4().replace(/-/g, '')}.png`);
     fs.writeFileSync(file, buf);
     return file;
   } catch {
@@ -258,6 +259,12 @@ export async function runPreviewAction(
   });
 
   const screenshotPath = payload.image ? saveDataUrlPng(payload.image) : undefined;
+  if (screenshotPath) {
+    if (lastPreviewScreenshot && lastPreviewScreenshot !== screenshotPath) {
+      try { fs.unlinkSync(lastPreviewScreenshot); } catch { /* already gone */ }
+    }
+    lastPreviewScreenshot = screenshotPath;
+  }
   if (payload.image && !screenshotPath) logger.warn('Preview screenshot could not be decoded');
   return { ok: payload.ok, result: payload.result, screenshotPath, url: payload.url, transportFailed: payload.transportFailed };
 }

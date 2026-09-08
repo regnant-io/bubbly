@@ -10,7 +10,7 @@ import { settingsRouter } from './routes/settings';
 import { mcpRouter } from './routes/mcp';
 import { connectionsRouter } from './routes/connections';
 import { processesRouter } from './routes/processes';
-import { runAgentLoop, resolveApproval, resolveQuestion, stopSession, isSessionRunning, queueUserMessage, queuedMessageCount } from './agent/orchestrator';
+import { runAgentLoop, resolveApproval, resolveQuestion, stopSessionReturningQueue, isSessionRunning, queueUserMessage, queuedMessageCount } from './agent/orchestrator';
 import { dispatchChat } from './agent/chatDispatch';
 import { stopLoop } from './agent/loopRunner';
 import { watchers } from './agent/tools/watchers';
@@ -52,9 +52,23 @@ const server = http.createServer(app);
  */
 const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 function isAllowedOrigin(origin: string | undefined): boolean {
-  if (!origin || origin === 'null') return true; // non-browser or file:// (Electron)
+  if (!origin) return true; // CLI/native clients do not send a browser Origin
+  if (origin === 'null') return false; // sandboxed web pages use this to evade origin checks
   return LOCAL_ORIGIN_RE.test(origin);
 }
+
+// CORS only controls whether browser JavaScript can READ a response; it does
+// not stop a disallowed POST from executing. Enforce the origin before any API
+// route so cross-site requests have no side effects at all.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (!isAllowedOrigin(origin)) {
+    logger.warn('Rejected HTTP request from disallowed origin', { origin, path: req.path });
+    res.status(403).json({ error: 'Origin not allowed' });
+    return;
+  }
+  next();
+});
 
 app.use(cors({
   origin: (origin, cb) => cb(null, isAllowedOrigin(origin ?? undefined)),
@@ -122,7 +136,9 @@ const frontendDist = process.env.BUBBLY_FRONTEND_DIST
   : path.join(__dirname, '../../frontend/dist');
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
-  app.get('*', (_req, res) => {
+  // Express 5/path-to-regexp names wildcard parameters; the old bare `*`
+  // throws while registering the route and prevents the backend from booting.
+  app.get('/{*splat}', (_req, res) => {
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
 }
@@ -320,7 +336,7 @@ wss.on('connection', (ws) => {
   // a brand-new thread arrives with sessionId undefined both times, so both
   // requests create their own session and there is nothing for that guard to
   // match on. This closes exactly that window.
-  const NEW_THREAD = ' new-thread';
+  const NEW_THREAD = '\u0000new-thread';
   const chatInFlight = new Set<string>();
 
   ws.on('message', async (raw) => {
@@ -366,7 +382,16 @@ wss.on('connection', (ws) => {
       // stopping cancels the current round and the loop cheerfully starts the
       // next one — which reads as the Stop button not working.
       stopLoop(msg.sessionId);
-      stopSession(msg.sessionId);
+      const returned = stopSessionReturningQueue(msg.sessionId);
+      if (returned.length > 0) {
+        const watching = socketsWatching(msg.sessionId);
+        for (const sock of watching) {
+          send(sock, { type: 'queued_messages_returned', sessionId: msg.sessionId, messages: returned });
+        }
+        if (!watching.includes(ws)) {
+          send(ws, { type: 'queued_messages_returned', sessionId: msg.sessionId, messages: returned });
+        }
+      }
       return;
     }
 

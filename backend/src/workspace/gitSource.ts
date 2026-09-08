@@ -78,21 +78,39 @@ export function parseRepoUrl(input: string): ParsedRepoUrl | null {
   // https://host/owner/repo (including nested GitLab groups)
   try {
     const u = new URL(raw.includes('://') ? raw : `https://${raw}`);
-    const segments = u.pathname.split('/').filter(Boolean);
+    let segments = u.pathname.split('/').filter(Boolean);
     if (segments.length < 2) return null;
+    const forge = classify(u.host);
+    // Browser URLs are pasted more often than clone URLs. Strip known forge UI
+    // routes instead of treating a branch, issue, or file as the repository.
+    if (forge === 'github') {
+      segments = segments.slice(0, 2);
+    } else if (forge === 'gitlab') {
+      const uiSeparator = segments.indexOf('-');
+      if (uiSeparator >= 2) segments = segments.slice(0, uiSeparator);
+    }
     const repo = segments[segments.length - 1];
     const owner = segments.slice(0, -1).join('/');
     return {
-      url: `${u.protocol}//${u.host}${u.pathname}.git`,
+      url: `${u.protocol}//${u.host}/${segments.join('/')}.git`,
       host: u.host,
       owner,
       repo,
-      forge: classify(u.host),
+      forge,
       ssh: u.protocol === 'ssh:',
     };
   } catch {
     return null;
   }
+}
+
+/** Git ref-name safety rules, plus a leading-option guard for CLI use. */
+export function isSafeBranchName(branch: string): boolean {
+  const b = branch.trim();
+  if (!b || b !== branch || b.startsWith('-') || b.startsWith('.') || b.startsWith('/') ||
+      b.endsWith('.') || b.endsWith('/') || b.includes('..') || b.includes('@{') ||
+      b.includes('//') || /[\x00-\x20\x7f~^:?*\[\\]/.test(b)) return false;
+  return !b.split('/').some((part) => !part || part.startsWith('.') || part.endsWith('.lock'));
 }
 
 function reposRoot(): string {
@@ -115,18 +133,20 @@ export interface GitCommandResult {
 /**
  * Run git with credentials, without ever writing one to disk.
  *
- * A token, when we need one, is passed through the `GIT_ASKPASS`-free route:
- * an `http.extraheader` on the command line for this invocation only. It lives
- * in the process's argv for the duration of one command and nowhere else — not
- * in the URL (which git writes into `.git/config` and every later push would
- * leak), not in a credential file, not in the environment of child processes.
+ * A token, when needed, is injected through Git's numbered configuration
+ * environment for this invocation only. Keeping it out of argv matters:
+ * process inspectors and crash reporters commonly capture command lines. It
+ * is never written into the remote URL or `.git/config`.
  */
 export function runGit(args: string[], cwd: string, opts: { token?: string; timeoutMs?: number } = {}): GitCommandResult {
-  const full = opts.token
-    ? ['-c', `http.extraheader=Authorization: Bearer ${opts.token}`, ...args]
-    : args;
+  const inheritedConfigCount = Math.max(0, Number.parseInt(process.env.GIT_CONFIG_COUNT ?? '0', 10) || 0);
+  const credentialEnv = opts.token ? {
+    GIT_CONFIG_COUNT: String(inheritedConfigCount + 1),
+    [`GIT_CONFIG_KEY_${inheritedConfigCount}`]: 'http.extraHeader',
+    [`GIT_CONFIG_VALUE_${inheritedConfigCount}`]: `Authorization: Bearer ${opts.token}`,
+  } : {};
 
-  const r = spawnSync('git', full, {
+  const r = spawnSync('git', args, {
     cwd,
     encoding: 'utf8',
     timeout: opts.timeoutMs ?? 300_000,
@@ -139,6 +159,7 @@ export function runGit(args: string[], cwd: string, opts: { token?: string; time
         // Do not let a host key prompt hang a clone; the user's known_hosts
         // still applies, this only stops the interactive question.
         GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
+        ...credentialEnv,
       },
     }),
   });
@@ -193,6 +214,12 @@ export function cloneOrReuse(
   input: string,
   opts: { branch?: string; depth?: number } = {},
 ): CloneOutcome {
+  if (opts.branch !== undefined && !isSafeBranchName(opts.branch)) {
+    return {
+      ok: false,
+      message: `"${opts.branch}" is not a safe Git branch name. Use a branch or tag name without spaces, control characters, "..", "@{" or a leading dash.`,
+    };
+  }
   const parsed = parseRepoUrl(input);
   if (!parsed) {
     return {

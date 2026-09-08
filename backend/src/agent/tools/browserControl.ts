@@ -24,6 +24,7 @@ import { logger } from '../../utils/logger';
 import { isPreviewClientAvailable, hasEverSeenCapableClient, runPreviewAction } from './previewBridge';
 import { getProjectDataPath } from '../projectData';
 import { UrlSource, isNavigableSource, isSelfOrigin } from './previewTarget';
+import { randomUUID } from 'crypto';
 
 /** Current run-config schema version. */
 export const RUN_CONFIG_VERSION = 3;
@@ -736,7 +737,17 @@ export function validateBrowserAction(
       return { ok: false, error: `Only http(s) URLs are allowed (got "${url}").` };
     }
     const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    if (!/^https?:\/\/[^\s]+$/i.test(normalized)) return { ok: false, error: `Invalid url: ${url}` };
+    let parsed: URL;
+    try { parsed = new URL(normalized); } catch { return { ok: false, error: `Invalid url: ${url}` }; }
+    if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password) {
+      return { ok: false, error: 'Only credential-free http(s) URLs are allowed.' };
+    }
+    if (isSelfOrigin(parsed.href)) {
+      return { ok: false, error: 'That address is Bubbly itself; refusing to open Bubbly inside its own preview.' };
+    }
+    if (isCloudMetadataUrl(parsed.href)) {
+      return { ok: false, error: 'Cloud instance-metadata endpoints are blocked from browser control.' };
+    }
     p.url = normalized;
   }
 
@@ -867,6 +878,7 @@ class BrowserSession {
   private consoleErrors: string[] = [];
   /** Full recent console log (all levels) + failed requests, for the `console` action. */
   private consoleLog: string[] = [];
+  private lastFramePath: string | null = null;
 
   get isOpen(): boolean { return !!this.page; }
 
@@ -882,6 +894,15 @@ class BrowserSession {
       // separate OS window. A fixed viewport keeps frames consistent.
       this.browser = await pw.chromium.launch({ headless: true });
       this.context = await this.browser!.newContext({ viewport: { width: 1280, height: 800 } });
+      // Browser automation needs localhost for the project preview, but it does
+      // not need cloud credential metadata or Bubbly's own registered ports.
+      // Apply the policy to every request so redirects cannot bypass URL input
+      // validation.
+      await this.context.route('**/*', async (route: any) => {
+        const url = route.request().url();
+        if (isCloudMetadataUrl(url) || isSelfOrigin(url)) await route.abort('blockedbyclient');
+        else await route.continue();
+      });
       // Inject the visible cursor into every page/navigation.
       await this.context.addInitScript(CURSOR_INIT);
       this.page = await this.context.newPage();
@@ -937,8 +958,12 @@ class BrowserSession {
    */
   private async captureFrame(): Promise<string | undefined> {
     try {
-      const file = path.join(os.tmpdir(), `bubbly_browser_${Date.now()}.png`);
+      const file = path.join(os.tmpdir(), `bubbly_browser_${randomUUID().replace(/-/g, '')}.png`);
       await this.page.screenshot({ path: file });
+      if (this.lastFramePath && this.lastFramePath !== file) {
+        try { fs.unlinkSync(this.lastFramePath); } catch { /* already served/removed */ }
+      }
+      this.lastFramePath = file;
       return file;
     } catch { return undefined; }
   }
@@ -956,7 +981,10 @@ class BrowserSession {
         case 'open':
         case 'goto': {
           this.consoleErrors = []; this.consoleLog = []; // fresh page → fresh logs
-          await this.page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          const navigation = await this.page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          let selfHeader: string | null = null;
+          try { selfHeader = navigation ? await navigation.headerValue('x-bubbly-backend') : null; } catch { /* ignore */ }
+          if (selfHeader) throw new Error('the target identified itself as Bubbly; recursive preview blocked');
           return { ok: true, result: `Navigated to ${p.url} — ${await this.page.title()}`, screenshotPath: await this.captureFrame() };
         }
         case 'reload': {
@@ -1101,6 +1129,21 @@ class BrowserSession {
     try { await this.context?.close(); } catch { /* ignore */ }
     try { await this.browser?.close(); } catch { /* ignore */ }
     this.page = null; this.context = null; this.browser = null;
+    if (this.lastFramePath) {
+      try { fs.unlinkSync(this.lastFramePath); } catch { /* ignore */ }
+      this.lastFramePath = null;
+    }
+  }
+}
+
+/** Addresses that expose short-lived machine credentials on common clouds. */
+export function isCloudMetadataUrl(raw: string): boolean {
+  try {
+    const host = new URL(raw).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return host === '169.254.169.254' || host === 'metadata.google.internal' ||
+      host === 'metadata.google' || host === '100.100.100.200' || host === 'fd00:ec2::254';
+  } catch {
+    return false;
   }
 }
 

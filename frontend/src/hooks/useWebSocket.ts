@@ -316,6 +316,16 @@ export function useWebSocket() {
         store.deliverPendingMessage(event.message);
         break;
 
+      case 'queued_messages_returned': {
+        // Stop happened before these instructions reached a model boundary.
+        // Put them back into the composer instead of silently discarding text
+        // the user reasonably expects to still own.
+        for (const message of event.messages) store.deliverPendingMessage(message);
+        const restored = [...event.messages, store.chatDraft].filter(Boolean).join('\n\n');
+        store.setChatDraft(restored);
+        break;
+      }
+
       case 'loop_started':
         store.setActiveLoop({
           loopId: event.loopId,
@@ -1008,6 +1018,7 @@ export function useWebSocket() {
       }
       store.setIsRunning(true);
       store.startRunTimer();
+      store.setCurrentPhase(null);
       // Remember the thread type so the badge persists across the session.
       if (threadType === 'vibe_coding' || threadType === 'spec_session') {
         store.setCurrentThreadType(threadType);
@@ -1061,6 +1072,7 @@ export function useWebSocket() {
       }
       store.setIsRunning(true);
       store.startRunTimer();
+      store.setCurrentPhase(null);
       if (threadType === 'vibe_coding' || threadType === 'spec_session') {
         store.setCurrentThreadType(threadType);
       }

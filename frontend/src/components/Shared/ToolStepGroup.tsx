@@ -233,27 +233,20 @@ export function ToolStepGroup({ steps, durationMs, trailing, children }: ToolSte
   const phases = React.useMemo(() => segmentByPhase(steps), [steps]);
 
   /*
-   * WHILE RUNNING, THE HEADER IS THE STEP IN FLIGHT — VERBATIM.
-   *
-   * The collapsed row used to compose its own sentence, "Implementing the
-   * leaderboard — Using the browser", and the composition was the problem: the
-   * phase half barely changes, so the line read as static while twenty steps
-   * went past underneath it, and the half that WAS moving got the smaller share
-   * of the row. The inner step lines already say the beautiful thing — "Pressed
-   * ArrowRight", "Reading orchestrator.ts" — so the header simply shows that,
-   * the same label the step will show when the group is opened. One title, in
-   * both places, sliding to the next step as it starts.
-   *
-   * The phase has not been lost: it is the heading of the section the steps sit
-   * under, which is where it belongs — it describes a stretch of work, not the
-   * step happening right now.
+   * The collapsed row is a window onto the CURRENT INNER PHASE only. Older
+   * phases remain available when expanded, but never form a breadcrumb/arrow
+   * chain in this narrow row. A short action after the phase says what is
+   * happening without replacing the stable description of why it is happening.
    */
   const active = steps.find((s) => !s.done);
-  const headline = active
+  const currentPhase = phases[phases.length - 1];
+  const phaseLabel = currentPhase?.phase.label ?? 'Working';
+  const actionSummary = active
     ? activeStepLabel(active.tool, active.args)
-    : phases.length > 1
-    ? phases.map((p) => p.phase.label).join(' → ')
+    : currentPhase
+    ? summariseSteps(currentPhase.steps)
     : summariseSteps(steps);
+  const headline = `${phaseLabel} · ${actionSummary}`;
 
   /*
    * NOTHING IN THIS HEADER MAY CHANGE THE ROW'S GEOMETRY.
@@ -284,7 +277,10 @@ export function ToolStepGroup({ steps, durationMs, trailing, children }: ToolSte
         />
         <span className="shrink-0 w-[11px] h-[11px] flex items-center justify-center">
           {running ? (
-            <Loader2 size={11} className="animate-spin text-text-dim" />
+            <span
+              className="block w-1.5 h-1.5 rounded-full bg-accent-bright phase-dot"
+              aria-hidden="true"
+            />
           ) : (
             <Check size={11} className="text-text-dim/50 group-hover:text-green-agent transition-colors" />
           )}
@@ -304,7 +300,7 @@ export function ToolStepGroup({ steps, durationMs, trailing, children }: ToolSte
           where it happened, not where it is most visible.
         */}
         <SlidingLabel
-          text={`· ${headline}${running ? '…' : ''}`}
+          text={headline}
           className={`text-text-muted ${running ? 'step-sweep' : ''}`}
         />
 

@@ -32,6 +32,7 @@ import { remoteProcesses } from './remoteProcesses';
 import { SshProvider, shellQuote } from './sshProvider';
 import type { FileDiff } from '../types';
 import type { WorkspaceProvider } from './types';
+import { extractSymbols } from '../agent/intelligence/symbols';
 
 /** Tools that read or write the workspace, and so must run on the far side. */
 export const REMOTE_HANDLED_TOOLS = new Set([
@@ -41,6 +42,14 @@ export const REMOTE_HANDLED_TOOLS = new Set([
   'run_command', 'run_background', 'get_process_output', 'send_process_input',
   'list_processes', 'stop_process',
   'git_status', 'git_diff', 'git_log', 'git_add_and_commit',
+  // Structural tools must never fall through to the local fs implementation
+  // with a synthetic ssh:// path. The lightweight remote versions below move
+  // summaries/search hits across the wire, not the whole repository.
+  'get_repo_map', 'find_symbol', 'find_references', 'get_file_outline', 'gather_context',
+  // These still need provider-native implementations. Intercept them now so a
+  // missing implementation fails honestly instead of touching a local path.
+  'read_config', 'write_config', 'validate_changes', 'rename_symbol',
+  'create_checkpoint', 'list_checkpoints', 'revert_to_checkpoint', 'repo', 'forge',
 ]);
 
 export function handlesRemotely(tool: string): boolean {
@@ -168,6 +177,68 @@ export async function executeRemoteTool(
       return {
         result: `${files.length} files under ${args.path ?? '.'} on ${provider.label}:\n${files.slice(0, 800).join('\n')}` +
           (files.length > 800 ? `\n… and ${files.length - 800} more` : ''),
+      };
+    }
+
+    case 'get_file_outline': {
+      const rel = String(args.path ?? '');
+      const stat = await provider.stat(rel);
+      if (!stat.exists || stat.isDirectory) return { result: `FAILED: ${rel} is not a file on ${provider.label}.` };
+      if (stat.size > MAX_READ_BYTES) return { result: `FAILED: ${rel} is too large to outline safely over the network.` };
+      const outline = extractSymbols(rel, await provider.readFile(rel));
+      const imports = outline.imports.map((i) => i.specifier).slice(0, 15).join(', ');
+      const symbols = outline.symbols
+        .slice(0, 200)
+        .map((s) => `  L${s.line} ${s.kind} ${s.container ? `${s.container}.` : ''}${s.name} — ${s.signature}`)
+        .join('\n');
+      return {
+        result: `# Outline: ${rel} (${outline.language}) on ${provider.label}\n\nImports: ${imports || 'none'}\n\n` +
+          `Symbols (${outline.symbols.length}):\n${symbols || '(none)'}` +
+          (outline.symbols.length > 200 ? '\n… truncated at 200 symbols' : ''),
+      };
+    }
+
+    case 'find_symbol':
+    case 'find_references': {
+      const name = String(args.name ?? '').trim();
+      if (!name) return { result: `FAILED: ${tool} needs a symbol name.` };
+      const hits = await remoteSearch(provider, {
+        query: name,
+        target: 'content',
+        whole_word: true,
+        max_results: tool === 'find_symbol' ? 60 : 200,
+      });
+      return {
+        result: `${tool === 'find_symbol' ? 'Candidate declarations/usages' : 'Candidate references'} for "${name}" on ${provider.label}. ` +
+          `Remote structural search is text-based; inspect an outline to distinguish declarations.\n${hits}`,
+      };
+    }
+
+    case 'get_repo_map': {
+      const maxFiles = Math.min(Math.max(Number(args.max_files ?? 40) || 40, 1), 80);
+      const entries = await provider.walk({ relPath: '.', maxEntries: 4_000 });
+      const files = entries.filter((e) => !e.isDirectory).map((e) => e.path).sort();
+      const focus = String(args.focus ?? '').trim().toLowerCase();
+      const focused = focus
+        ? files.filter((file) => focus.split(/\s+/).some((word) => word.length > 2 && file.toLowerCase().includes(word)))
+        : [];
+      const selected = [...new Set([...focused, ...files])].slice(0, maxFiles);
+      return {
+        result: `# Remote repository map — ${provider.label}\n\n${selected.map((f) => `- ${f}`).join('\n') || '(empty)'}` +
+          (files.length > selected.length ? `\n\nShowing ${selected.length} of ${files.length} discovered files. Use search and get_file_outline to narrow further.` : ''),
+      };
+    }
+
+    case 'gather_context': {
+      const task = String(args.task_description ?? '').trim();
+      const words = [...new Set(task.toLowerCase().match(/[a-z_][a-z0-9_-]{2,}/g) ?? [])].slice(0, 5);
+      const sections: string[] = [];
+      for (const word of words) {
+        sections.push(`## ${word}\n${await remoteSearch(provider, { query: word, max_results: 20 })}`);
+      }
+      return {
+        result: `# Remote context candidates — ${provider.label}\n\n` +
+          (sections.join('\n\n') || 'The task description contains no searchable terms. Use get_repo_map or search.'),
       };
     }
 
@@ -332,6 +403,21 @@ export async function executeRemoteTool(
     case 'git_log':
     case 'git_add_and_commit':
       return { result: await remoteGit(provider, tool, args) };
+
+    case 'read_config':
+    case 'write_config':
+    case 'validate_changes':
+    case 'rename_symbol':
+    case 'create_checkpoint':
+    case 'list_checkpoints':
+    case 'revert_to_checkpoint':
+    case 'repo':
+    case 'forge':
+      return {
+        result: `FAILED: ${tool} does not yet have a provider-native SSH implementation. ` +
+          `Use ${tool === 'read_config' ? 'read_file' : tool === 'write_config' ? 'write_file' : tool === 'repo' ? 'git_status/git_diff/git_log' : 'run_command'} on the remote workspace instead. ` +
+          `Bubbly refused to fall through to the local filesystem.`,
+      };
 
     default:
       return null;

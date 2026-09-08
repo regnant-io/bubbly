@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ChatMessage, Session, Settings, FileDiff, Spec, ContextUsage, Artifact, ArtifactKind, WatcherRow, WorkspaceSource } from '../types';
 import { DEFAULT_PALETTE_ID } from '../styles/palettes';
+import { isCurrentBubblyOrigin } from '../utils/previewIdentity';
 
 /** File preview data for the right panel */
 export interface FilePreview {
@@ -661,11 +662,21 @@ export const useStore = create<AppState>()(
           rightPanelOpen: true,
         })),
       setPreviewUrl: (url) =>
-        set((state) => ({
-          previewUrl: url,
-          // Open the live browser preview panel whenever a URL is loaded.
-          ...(url ? { rightStack: state.rightStack.includes('preview') ? state.rightStack : [...state.rightStack, 'preview'], rightPanelOpen: true } : {}),
-        })),
+        set((state) => {
+          // Reject the renderer's own address at the final shared state
+          // boundary. URLs arrive from terminals, server detection, service
+          // tabs and agent actions; protecting only the address bar leaves
+          // several routes that can still create a recursive Bubbly preview.
+          const safeUrl = url && isCurrentBubblyOrigin(url) ? null : url;
+          if (url && !safeUrl) {
+            console.warn('[Preview] Refusing to embed Bubbly inside its own preview', url);
+          }
+          return {
+            previewUrl: safeUrl,
+            // Open the live browser preview panel whenever a URL is loaded.
+            ...(safeUrl ? { rightStack: state.rightStack.includes('preview') ? state.rightStack : [...state.rightStack, 'preview'], rightPanelOpen: true } : {}),
+          };
+        }),
       
       setPanelSize: (panel, size) =>
         set((state) => ({
@@ -701,7 +712,16 @@ export const useStore = create<AppState>()(
   beginRun: (trigger) =>
     set((state) => (state.isRunning && state.runTrigger === trigger
       ? {}
-      : { isRunning: true, runTrigger: trigger, runStartedAt: state.runStartedAt ?? Date.now(), lastRunDurationMs: null })),
+      : {
+          isRunning: true,
+          runTrigger: trigger,
+          runStartedAt: state.runStartedAt ?? Date.now(),
+          lastRunDurationMs: null,
+          // A phase describes one model run, not the whole thread. Keeping the
+          // previous run's last label made a new answer's first tools appear
+          // underneath work that had already finished.
+          currentPhase: null,
+        })),
 
   setWatchers: (watchers) => set({ watchers }),
   setActiveLoop: (activeLoop) => set({ activeLoop }),
@@ -724,7 +744,15 @@ export const useStore = create<AppState>()(
       if (idx >= 0) {
         const messages = state.messages.slice();
         const prev = messages[idx] as Extract<ChatMessage, { type: 'tool_call' }>;
-        messages[idx] = { ...prev, tool: tool || prev.tool, args: args ?? prev.args } as ChatMessage;
+        messages[idx] = {
+          ...prev,
+          tool: tool || prev.tool,
+          args: args ?? prev.args,
+          // tool_started can arrive before a phase event and creates a shell
+          // row without metadata. When the complete call arrives, fill the
+          // phase if one is now known, while never relabelling an older step.
+          ...(prev.phase ? {} : state.currentPhase ? { phase: state.currentPhase } : {}),
+        } as ChatMessage;
         return { messages };
       }
       return {

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { validateBrowserAction, BROWSER_READ_ONLY, inferServices, primaryService } from './browserControl';
+import { validateBrowserAction, BROWSER_READ_ONLY, inferServices, primaryService, isCloudMetadataUrl } from './browserControl';
 
 /** Build a throwaway project tree from a { relPath: contents } map. */
 function scaffold(files: Record<string, string>): string {
@@ -29,6 +29,12 @@ describe('validateBrowserAction', () => {
 
   it('rejects non-http(s) schemes (sandbox to the web)', () => {
     expect(validateBrowserAction('goto', { url: 'file:///etc/passwd' }).ok).toBe(false);
+  });
+
+  it('rejects credential-bearing and cloud-metadata URLs', () => {
+    expect(validateBrowserAction('goto', { url: 'https://user:secret@example.com' }).ok).toBe(false);
+    expect(validateBrowserAction('goto', { url: 'http://169.254.169.254/latest/meta-data' }).ok).toBe(false);
+    expect(isCloudMetadataUrl('http://metadata.google.internal/computeMetadata/v1/')).toBe(true);
   });
 
   it('click needs a selector, text, or coordinates', () => {

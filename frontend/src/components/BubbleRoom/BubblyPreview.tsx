@@ -5,6 +5,7 @@ import { registerPreviewHandler, PreviewControlResult } from '../../utils/previe
 import { reportPreviewCapability } from '../../utils/previewHostBus';
 import { SNAPSHOT_JS, PAINT_CHECK_JS, buildClickJs, buildTypeJs, buildIsReadyJs, formatSnapshot } from '../../utils/browserPageScripts';
 import { detectBrowserMeta, saveBrowserMetaPreviewUrl, startPreviewServer, previewServerStatus, stopPreviewServer, type PreviewService } from '../../hooks/useApi';
+import { isCurrentBubblyOrigin } from '../../utils/previewIdentity';
 import { Monitor, Smartphone, Tablet, ArrowLeft, ChevronRight, RefreshCw, ExternalLink, ShieldCheck, Play, Square, Loader2, Maximize2 } from '../Shared/icons';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -379,6 +380,9 @@ export function BubblyPreview() {
     if (action === 'open' || action === 'goto') {
       const url = normalize(String(params.url ?? ''));
       if (!url) return { ok: false, result: 'open requires a url.' };
+      if (isCurrentBubblyOrigin(url)) {
+        return { ok: false, result: 'That address is Bubbly itself; recursive preview was blocked.' };
+      }
       setPreviewUrl(url);
       const wv = await waitForWebview();
       if (!wv || typeof wv.getURL !== 'function') {
@@ -520,7 +524,16 @@ export function BubblyPreview() {
     reportPreviewCapability({ capable: isDesktop(), desktop: isDesktop(), hasWebview: !!previewUrl, url: previewUrl ?? null });
   }, [previewUrl]);
 
-  const go = () => { const url = normalize(addr); if (url) setPreviewUrl(url); };
+  const go = () => {
+    const url = normalize(addr);
+    if (!url) return;
+    if (isCurrentBubblyOrigin(url)) {
+      setLoadError('That address is Bubbly itself. Choose the project dev server instead — Bubbly will not embed itself recursively.');
+      return;
+    }
+    setLoadError(null);
+    setPreviewUrl(url);
+  };
   const back = () => { try { webviewRef.current?.goBack?.(); } catch { /* ignore */ } };
   const forward = () => { try { webviewRef.current?.goForward?.(); } catch { /* ignore */ } };
   /**

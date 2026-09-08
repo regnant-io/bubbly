@@ -4,7 +4,7 @@ import {
   Folder, ChevronDown, Check, Server, GitBranch, Loader2, Plus, X, AlertCircle,
 } from '../Shared/icons';
 import { isDesktop } from '../../hooks/useDesktop';
-import type { WorkspaceSource, SshConnectionSummary } from '../../types';
+import type { WorkspaceSource, SshConnectionSummary, ForgeAccountSummary } from '../../types';
 
 /**
  * Where the next thread will do its work.
@@ -298,7 +298,7 @@ function SshTab({ onOpened }: { onOpened: () => void }) {
       )}
 
       <button
-        onClick={openIt}
+        onClick={() => void openIt()}
         disabled={busy || !selected || !remotePath.trim()}
         className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-accent/15 text-accent-bright
                    px-3 py-2 text-xs font-medium hover:bg-accent/25 disabled:opacity-40 transition-colors"
@@ -320,9 +320,63 @@ function GitTab({ onOpened }: { onOpened: () => void }) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [note, setNote] = React.useState<string | null>(null);
+  const [loadingRepos, setLoadingRepos] = React.useState(true);
+  const [recentRepos, setRecentRepos] = React.useState<Array<{ source: Extract<WorkspaceSource, { kind: 'git' }>; lastUsedAt: string }>>([]);
+  const [connectedRepos, setConnectedRepos] = React.useState<Array<{ fullName: string; url: string; private: boolean; host: string }>>([]);
 
-  const openIt = async () => {
-    if (!url.trim()) return;
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [recentResponse, forgeResponse] = await Promise.all([
+          fetch('/api/connections/repo/recent'),
+          fetch('/api/connections/forge'),
+        ]);
+        const recentData = recentResponse.ok ? await recentResponse.json() : { repos: [] };
+        const forgeData = forgeResponse.ok ? await forgeResponse.json() : { accounts: [], detected: {} };
+        if (cancelled) return;
+        setRecentRepos(recentData.repos ?? []);
+
+        const accounts = [...(forgeData.accounts ?? [])] as ForgeAccountSummary[];
+        const known = new Set(accounts.map((a) => `${a.forge}:${a.host}`));
+        for (const forge of ['github', 'gitlab'] as const) {
+          if (forgeData.detected?.[forge]) {
+            const host = forge === 'github' ? 'github.com' : 'gitlab.com';
+            if (!known.has(`${forge}:${host}`)) {
+              accounts.push({ id: `detected-${forge}`, forge, host, tokenSource: forgeData.detected[forge], createdAt: '' });
+            }
+          }
+        }
+
+        const lists = await Promise.all(accounts.map(async (account) => {
+          const params = new URLSearchParams({ forge: account.forge, host: account.host, limit: '30' });
+          const response = await fetch(`/api/connections/forge/repos?${params}`);
+          if (!response.ok) return [];
+          const data = await response.json();
+          return (data.repos ?? []).map((repo: any) => ({
+            fullName: String(repo.fullName),
+            url: String(repo.url),
+            private: !!repo.private,
+            host: account.host,
+          }));
+        }));
+        if (!cancelled) {
+          const unique = new Map<string, { fullName: string; url: string; private: boolean; host: string }>();
+          for (const repo of lists.flat()) unique.set(repo.url, repo);
+          setConnectedRepos([...unique.values()]);
+        }
+      } catch {
+        // Manual URL entry remains available when forge discovery is offline.
+      } finally {
+        if (!cancelled) setLoadingRepos(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const openIt = async (selectedUrl = url) => {
+    if (!selectedUrl.trim()) return;
     setBusy(true);
     setError(null);
     setNote(null);
@@ -330,7 +384,7 @@ function GitTab({ onOpened }: { onOpened: () => void }) {
       const res = await fetch('/api/connections/repo/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim(), branch: branch.trim() || undefined }),
+        body: JSON.stringify({ url: selectedUrl.trim(), branch: branch.trim() || undefined }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.hint ? `${data.error}\n\n${data.hint}` : data.error); return; }
@@ -346,8 +400,62 @@ function GitTab({ onOpened }: { onOpened: () => void }) {
     }
   };
 
+  const openRecent = (source: Extract<WorkspaceSource, { kind: 'git' }>) => {
+    switchWorkspace(source.localPath);
+    setWorkspaceSource(source);
+    onOpened();
+  };
+
   return (
     <div className="p-2 space-y-2">
+      {recentRepos.length > 0 && (
+        <div>
+          <div className="px-0.5 pb-1 text-[10px] uppercase tracking-wide text-text-dim">Recent repositories</div>
+          <div className="space-y-0.5">
+            {recentRepos.slice(0, 6).map(({ source }) => (
+              <button
+                key={source.url}
+                onClick={() => openRecent(source)}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-muted hover:bg-surface-3 hover:text-text transition-colors"
+                title={source.localPath}
+              >
+                <GitBranch size={12} className="shrink-0 text-accent-bright" />
+                <span className="truncate">{source.owner && source.repo ? `${source.owner}/${source.repo}` : source.url}</span>
+                {source.branch && <span className="ml-auto text-[10px] font-mono text-text-dim truncate">{source.branch}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(loadingRepos || connectedRepos.length > 0) && (
+        <div>
+          <div className="px-0.5 pb-1 text-[10px] uppercase tracking-wide text-text-dim">Connected repositories</div>
+          {loadingRepos ? (
+            <div className="flex items-center gap-2 px-2.5 py-2 text-[11px] text-text-dim">
+              <Loader2 size={12} className="animate-spin" /> Loading from GitHub and GitLab…
+            </div>
+          ) : (
+            <div className="max-h-36 overflow-y-auto space-y-0.5">
+              {connectedRepos.slice(0, 30).map((repo) => (
+                <button
+                  key={repo.url}
+                  onClick={() => void openIt(repo.url)}
+                  disabled={busy}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-muted hover:bg-surface-3 hover:text-text disabled:opacity-40 transition-colors"
+                  title={`${repo.host} · ${repo.private ? 'private' : 'public'}`}
+                >
+                  <GitBranch size={12} className="shrink-0 text-text-dim" />
+                  <span className="truncate">{repo.fullName}</span>
+                  <span className="ml-auto text-[9px] text-text-dim shrink-0">{repo.host}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(recentRepos.length > 0 || connectedRepos.length > 0) && <div className="border-t border-border/70" />}
       <div>
         <label className="block text-[10px] uppercase tracking-wide text-text-dim px-0.5 pb-1">Repository</label>
         <input
@@ -386,7 +494,7 @@ function GitTab({ onOpened }: { onOpened: () => void }) {
       {note && <p className="text-[11px] text-green-agent px-0.5">{note}</p>}
 
       <button
-        onClick={openIt}
+        onClick={() => void openIt()}
         disabled={busy || !url.trim()}
         className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-accent/15 text-accent-bright
                    px-3 py-2 text-xs font-medium hover:bg-accent/25 disabled:opacity-40 transition-colors"

@@ -52,6 +52,7 @@ export function reconstructMessages(
   // Remember tool names by call id so reconstructed tool_result rows can show
   // the correct tool (the stored tool_result block doesn't include the name).
   const toolNameByCallId = new Map<string, string>();
+  let currentPhase: { label: string; detail?: string; source: 'agent' | 'plan' } | null = null;
 
   const pushBlocks = (blocks: ContentBlock[], role: 'user' | 'assistant', timestamp: number) => {
     for (const block of blocks) {
@@ -65,6 +66,23 @@ export function reconstructMessages(
         }
       } else if (block.type === 'tool_use') {
         toolNameByCallId.set(block.id, block.name);
+        // Phase events are intentionally transient on the wire, but their
+        // source tool calls are persisted. Rebuild the state while replaying
+        // history so a refreshed thread groups exactly like the live one.
+        if (block.name === 'set_phase') {
+          const label = String(block.input.label ?? '').trim().replace(/[.!]+$/, '').slice(0, 80);
+          if (label) {
+            const detail = String(block.input.detail ?? '').trim() || undefined;
+            currentPhase = { label, detail, source: 'agent' };
+          }
+        } else if (block.name === 'update_plan') {
+          const candidates = [
+            ...(Array.isArray(block.input.steps) ? block.input.steps : []),
+            ...(Array.isArray(block.input.set_status) ? block.input.set_status : []),
+          ] as Array<Record<string, unknown>>;
+          const active = candidates.find((step) => step?.status === 'in_progress' && step?.title);
+          if (active) currentPhase = { label: String(active.title).slice(0, 80), source: 'plan' };
+        }
         const approval = approvalMap.get(block.id);
         if (approval) {
           chatMessages.push({
@@ -78,7 +96,15 @@ export function reconstructMessages(
             timestamp: new Date(approval.createdAt).getTime(),
           });
         } else {
-          chatMessages.push({ id: nanoid(), type: 'tool_call', tool: block.name, args: block.input, callId: block.id, timestamp });
+          chatMessages.push({
+            id: nanoid(),
+            type: 'tool_call',
+            tool: block.name,
+            args: block.input,
+            callId: block.id,
+            timestamp,
+            ...(currentPhase && block.name !== 'set_phase' ? { phase: currentPhase } : {}),
+          });
         }
       } else if (block.type === 'tool_result') {
         let diff: FileDiff[] | undefined;

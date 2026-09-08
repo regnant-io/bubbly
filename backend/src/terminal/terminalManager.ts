@@ -66,6 +66,9 @@ export interface TerminalSession {
   awaitingInput: InputPromptDetection | null;
   /** True while an agent-issued command is running in this session. */
   agentBusy: boolean;
+  /** Input typed but not submitted. Such a shell must never be borrowed by an
+   * agent, even if it has produced no output for the normal quiet interval. */
+  hasUnsubmittedInput: boolean;
 }
 
 export type TerminalOutputListener = (id: string, chunk: string) => void;
@@ -193,6 +196,7 @@ class TerminalManager {
       lastActivityAt: Date.now(),
       awaitingInput: null,
       agentBusy: false,
+      hasUnsubmittedInput: false,
     };
     this.sessions.set(id, session);
 
@@ -238,6 +242,7 @@ class TerminalManager {
           try { this.emitOutput(id, data); } catch { /* never throw from native cb */ }
         });
         p.onExit(({ exitCode }) => {
+          if (this.sessions.get(id) !== session) return;
           // ConPTY/winpty init failure: the shell dies almost immediately with
           // STATUS_DLL_INIT_FAILED (0xC0000142 == -1073741510) or a fast nonzero
           // exit. Recover by recreating this session on the pipe backend.
@@ -258,6 +263,9 @@ class TerminalManager {
           this.emitOutput(id, `\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`);
           this.emitExit(id, exitCode);
         });
+        // Spawning a native PTY can itself take longer than the idle window.
+        // Start the quiet clock after initialization, not before it.
+        session.lastActivityAt = Date.now();
         return session;
       } catch (err) {
         logger.warn('PTY spawn threw — using pipe fallback', { id, error: err instanceof Error ? err.message : String(err) });
@@ -292,12 +300,14 @@ class TerminalManager {
     proc.stdout.on('data', (d: Buffer) => { try { this.emitOutput(id, d.toString('utf8')); } catch { /* ignore */ } });
     proc.stderr.on('data', (d: Buffer) => { try { this.emitOutput(id, d.toString('utf8')); } catch { /* ignore */ } });
     proc.on('exit', (code) => {
+      if (this.sessions.get(id) !== session) return;
       session.alive = false;
       logger.info('Terminal (pipe) exited', { id, code });
       this.emitOutput(id, `\r\n[process exited with code ${code ?? 0}]\r\n`);
       this.emitExit(id, code);
     });
     proc.on('error', (err) => {
+      if (this.sessions.get(id) !== session) return;
       session.alive = false;
       this.emitOutput(id, `\r\n[terminal error: ${err.message}]\r\n`);
     });
@@ -325,9 +335,13 @@ class TerminalManager {
       } else {
         return false;
       }
-      // Any input the user/agent types clears the waiting flag; the next prompt
-      // (if any) will re-trigger detection from fresh output.
-      if (data.includes('\r') || data.includes('\n')) session.awaitingInput = null;
+      session.lastActivityAt = Date.now();
+      // Preserve partially typed commands from agent reuse. Enter submits the
+      // line; Ctrl-C/Ctrl-D abandon it. Everything else is conservatively
+      // treated as editing an in-progress line.
+      const submitted = /[\r\n\x03\x04]/.test(data);
+      session.hasUnsubmittedInput = submitted ? false : true;
+      if (submitted) session.awaitingInput = null;
       return true;
     } catch (err) {
       logger.warn('Terminal write failed', { id, error: err instanceof Error ? err.message : String(err) });
@@ -344,7 +358,7 @@ class TerminalManager {
   isIdle(id: string, quietMs = 750): boolean {
     const s = this.sessions.get(id);
     if (!s || !s.alive) return false;
-    if (s.agentBusy || s.awaitingInput) return false;
+    if (s.agentBusy || s.awaitingInput || s.hasUnsubmittedInput) return false;
     return Date.now() - s.lastActivityAt >= quietMs;
   }
 

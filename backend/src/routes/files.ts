@@ -247,7 +247,7 @@ filesRouter.post('/browser-meta', (req, res) => {
 filesRouter.get('/screenshot', (req, res) => {
   try {
     const file = String(req.query.file || '');
-    if (!/^bubbly_(browser|screen)[a-z0-9_]*\.png$/i.test(file)) {
+    if (!/^bubbly_(browser|screen|preview)[a-z0-9_]*\.png$/i.test(file)) {
       return res.status(400).json({ error: 'Invalid screenshot name' });
     }
     const full = path.join(os.tmpdir(), file);

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getAllSettings, setSetting } from '../db/index';
-import { listOllamaModels, listGeminiModels, listOpenRouterModels, getOpenRouterModelContext } from '../models/index';
+import { listOllamaModels, listGeminiModels, listOpenRouterModels, getOpenRouterModelContext, getOpenRouterModelVision } from '../models/index';
 import { resolveModelVision, resolveNumCtx, resolveModelContextLength, isOllamaCloudModel } from '../models/ollama';
 import { ollamaNameLooksVision } from '../models/capabilities';
 import { logger } from '../utils/logger';
@@ -13,15 +13,13 @@ settingsRouter.get('/', (_req, res) => {
   const settings = getAllSettings();
   // Mask API keys
   const masked = { ...settings };
-  if (masked.anthropicApiKey && masked.anthropicApiKey.length > 8) {
-    masked.anthropicApiKey = masked.anthropicApiKey.slice(0, 8) + '...';
-  }
-  if (masked.geminiApiKey && masked.geminiApiKey.length > 8) {
-    masked.geminiApiKey = masked.geminiApiKey.slice(0, 8) + '...';
-  }
-  if (masked.openrouterApiKey && masked.openrouterApiKey.length > 8) {
-    masked.openrouterApiKey = masked.openrouterApiKey.slice(0, 8) + '...';
-  }
+  // Presence is useful to the form; prefixes are not. A fixed sentinel avoids
+  // leaking the first eight characters (and avoids returning a short key in
+  // full), while the existing save path recognizes the trailing ellipsis as
+  // "unchanged".
+  if (masked.anthropicApiKey) masked.anthropicApiKey = '••••••••...';
+  if (masked.geminiApiKey) masked.geminiApiKey = '••••••••...';
+  if (masked.openrouterApiKey) masked.openrouterApiKey = '••••••••...';
   res.json(masked);
 });
 
@@ -133,15 +131,21 @@ settingsRouter.get('/ollama/models', async (req, res) => {
 /**
  * GET /api/settings/model/vision?provider=&model=
  * Resolve whether a model supports image input. For Ollama this queries the
- * model's REAL capabilities via /api/show (accurate for models like minimax
- * whose name doesn't reveal vision support); Claude/Gemini are always vision.
- * Falls back to the name heuristic when the probe is inconclusive.
+ * model's REAL capabilities via /api/show; OpenRouter uses its model catalogue.
+ * Claude/Gemini are always vision. Falls back when a probe is inconclusive.
  */
 settingsRouter.get('/model/vision', async (req, res) => {
   const provider = String(req.query.provider || 'claude');
   const model = String(req.query.model || '');
-  if (provider === 'claude' || provider === 'gemini' || provider === 'openrouter') return res.json({ supportsVision: true, source: 'provider' });
+  if (provider === 'claude' || provider === 'gemini') return res.json({ supportsVision: true, source: 'provider' });
   const settings = getAllSettings();
+  if (provider === 'openrouter') {
+    try {
+      const resolved = await getOpenRouterModelVision(settings.openrouterApiKey || '', model);
+      if (resolved !== null) return res.json({ supportsVision: resolved, source: 'openrouter-catalogue' });
+    } catch { /* fall through to the safe runtime retry */ }
+    return res.json({ supportsVision: true, source: 'fallback' });
+  }
   const baseUrl = settings.ollamaBaseUrl || 'http://localhost:11434';
   try {
     const resolved = await resolveModelVision(baseUrl, model);

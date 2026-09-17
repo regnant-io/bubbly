@@ -161,6 +161,18 @@ interface AppState {
   lastValidation: Array<{ file: string; line?: number; severity: 'error' | 'warning'; message: string }>;
   /** App boot lifecycle: 'loading' until initial settings/sessions are fetched. */
   bootState: 'loading' | 'ready';
+  /**
+   * A thread's history is being fetched and reconstructed.
+   *
+   * Its own flag rather than "messages is empty", because those are different
+   * states that deserve different screens: an empty thread is a WELCOME, a
+   * loading thread is a TRANSCRIPT that has not arrived. Conflating them meant
+   * clicking a long conversation showed the new-thread welcome card for a beat
+   * and then replaced it — a flash of the wrong screen, which is worse than a
+   * blank one because it invites you to start typing into a thread that is
+   * about to be replaced under you.
+   */
+  threadLoading: boolean;
   /** Whether the first-run onboarding has been completed/dismissed. */
   onboardingComplete: boolean;
   sidebarOpen: boolean;
@@ -334,6 +346,18 @@ interface AppState {
   theme: 'light' | 'dark' | 'system';
   resolvedTheme: 'light' | 'dark';
   /**
+   * The theme value the SERVER last told us about.
+   *
+   * Kept so `setSettings` can tell "the server changed the theme" apart from
+   * "the server is repeating the theme it already had". Without that
+   * distinction every settings write — including ones that have nothing to do
+   * with appearance, like switching the permission profile from the composer —
+   * re-applied the server's stale theme and yanked the user out of the mode
+   * they had just chosen. Never persisted: it describes the last response, not
+   * a preference.
+   */
+  lastServerTheme: 'light' | 'dark' | 'system' | null;
+  /**
    * Which palette is active. Independent of light/dark: every palette ships
    * both modes, so going dark never changes which theme you chose.
    */
@@ -345,6 +369,7 @@ interface AppState {
   setEditorStatus: (status: AppState['editorStatus']) => void;
   setLastValidation: (issues: AppState['lastValidation']) => void;
   setBootState: (state: AppState['bootState']) => void;
+  setThreadLoading: (loading: boolean) => void;
   setOnboardingComplete: (complete: boolean) => void;
   setSidebarOpen: (open: boolean) => void;
   setLeftHidden: (hidden: boolean) => void;
@@ -505,6 +530,25 @@ function nanoid(): string {
   return Math.random().toString(36).slice(2, 11);
 }
 
+/**
+ * Push the chosen theme to the backend so it outlives this window.
+ *
+ * Deliberately a bare fetch rather than an import of `hooks/useApi`: the store
+ * is imported by almost everything, and reaching back into the hooks layer for
+ * one PUT is the sort of edge that turns into a module cycle later. Failures
+ * are swallowed — the theme is already applied locally, and an offline backend
+ * is not a reason to refuse it.
+ */
+function persistThemeSetting(theme: 'light' | 'dark' | 'system'): Promise<void> {
+  return fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ theme }),
+  })
+    .then(() => undefined)
+    .catch(() => undefined);
+}
+
 // Read initial panel from URL hash
 function getInitialPanel(): AppState['activePanel'] {
   // Supports both "#/panel" and "#/thread/<id>" (thread → chat panel).
@@ -527,6 +571,7 @@ export const useStore = create<AppState>()(
       editorStatus: null,
       lastValidation: [],
       bootState: 'loading',
+      threadLoading: false,
       onboardingComplete: false,
       sidebarOpen: true,
       leftHidden: false,
@@ -597,6 +642,7 @@ export const useStore = create<AppState>()(
 
       theme: 'system',
       resolvedTheme: 'dark',
+      lastServerTheme: null,
       palette: DEFAULT_PALETTE_ID,
 
       setActivePanel: (panel) => {
@@ -633,6 +679,7 @@ export const useStore = create<AppState>()(
         }),
       setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
       setBootState: (bootState) => set({ bootState }),
+      setThreadLoading: (threadLoading) => set({ threadLoading }),
       setOnboardingComplete: (onboardingComplete) => set({ onboardingComplete }),
       setEditorStatus: (editorStatus) => set({ editorStatus }),
       setLastValidation: (lastValidation) => set({ lastValidation }),
@@ -1361,11 +1408,60 @@ export const useStore = create<AppState>()(
         ],
       };
     }),
+  /**
+   * Absorb a settings object from the server.
+   *
+   * THE THEME IS NOT JUST ANOTHER FIELD HERE.
+   *
+   * This used to read `settings.theme` unconditionally, which quietly made
+   * every settings write an appearance change. The composer's permission
+   * picker PUTs two booleans and then calls this with the merged object; the
+   * merged object still carries whatever `theme` the server had, so choosing
+   * "Autonomous" snapped the window back to the server's theme — the light/dark
+   * toggle only ever lived in this store, so the server's copy was routinely
+   * stale. Same for the Settings page's save, and for the boot fetch, which
+   * overrode the theme restored from local persistence.
+   *
+   * So: adopt the server's theme only when the server's value has actually
+   * CHANGED since the last time we looked (and on the very first response,
+   * which is the one that legitimately seeds it). A repeat of a value we have
+   * already seen is not a request to change anything.
+   */
   setSettings: (settings) => {
-    const theme = settings.theme || 'system';
-    set({ settings, settingsLoaded: true, theme });
+    const incoming = (settings.theme as AppState['theme']) || 'system';
+    const seen = get().lastServerTheme;
+    const serverChangedIt = seen === null || incoming !== seen;
+    set({
+      settings,
+      settingsLoaded: true,
+      lastServerTheme: incoming,
+      ...(serverChangedIt ? { theme: incoming } : {}),
+    });
   },
-  setTheme: (theme) => set({ theme }),
+
+  /**
+   * Choose light / dark / system.
+   *
+   * Written through to the backend as well as the store, because the theme is
+   * a real setting: the CLI reads it, a second window reads it, and a restart
+   * re-fetches it. Before this, the toggle changed only in-memory state, the
+   * server kept its old value, and the next `setSettings` — from any source —
+   * handed that old value back and undid the switch. Fire-and-forget: a failed
+   * write is worth a log, never worth refusing the user their theme.
+   */
+  setTheme: (theme) => {
+    const { settings, lastServerTheme } = get();
+    set({
+      theme,
+      // Keep the local mirror of the server's settings honest, so nothing
+      // downstream reads a `theme` that disagrees with what is on screen.
+      ...(settings ? { settings: { ...settings, theme } as Settings } : {}),
+      // We are about to make this the server's value too; recording it now
+      // stops the echo of our own write from being read as a server change.
+      ...(lastServerTheme !== null ? { lastServerTheme: theme } : {}),
+    });
+    void persistThemeSetting(theme);
+  },
   setPalette: (palette) => set({ palette }),
   setResolvedTheme: (resolvedTheme) => set({ resolvedTheme }),
 

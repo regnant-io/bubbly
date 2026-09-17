@@ -257,23 +257,18 @@ html.dark {
   --syntax-constant: #b48ead;
 }
 
-/* Smooth transitions on theme-dependent properties */
-html {
-  transition: background-color var(--theme-transition),
-              color var(--theme-transition);
-}
-
-* {
-  transition: background-color var(--theme-transition),
-              border-color var(--theme-transition),
-              color var(--theme-transition);
-}
-
-/* Prevent transitions on page load */
-html.no-transition,
-html.no-transition * {
-  transition: none !important;
-}
+/*
+ * Theme-swap transitions live in styles/motion.css, on `html.theme-transition`,
+ * and the theme hook adds that class only for the length of a swap.
+ *
+ * They used to live here, on the UNIVERSAL selector, permanently. That put a
+ * 200ms colour fade on every hover in the app — a button that answers the
+ * pointer a fifth of a second late feels broken in a way that is very hard to
+ * name — and made every hover, focus and selection change in a large tree a
+ * transition the compositor had to track. Paying for the effect only while it
+ * is visible is both faster and, for everything that is not a theme swap,
+ * noticeably crisper.
+ */
 
 /* Base page styling — a single flat background for the whole app */
 html, body, #root {

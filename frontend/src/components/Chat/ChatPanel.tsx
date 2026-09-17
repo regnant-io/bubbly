@@ -8,6 +8,7 @@ import { runClientCommand, type ClientCommandDef } from '../../utils/clientComma
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { ConnectionStatus } from '../Shared/ConnectionStatus';
 import { ErrorBoundary } from '../Shared/ErrorBoundary';
+import { TranscriptSkeleton } from '../Shared/SkeletonLoader';
 
 export function ChatPanel() {
   const {
@@ -19,6 +20,7 @@ export function ChatPanel() {
     workerPlan,
     pendingQuestion,
     currentThreadType,
+    threadLoading,
   } = useStore();
 
   const { sendChat, sendWorkflow, sendApprove, sendReject, sendStop, sendAnswer, sendQueuedMessage, connectionStatus, reconnectDelay } = useWebSocket();
@@ -185,9 +187,21 @@ export function ChatPanel() {
           <PanelDropdownMenu />
         </div>
 
-      {/* Welcome screen for new sessions (inline, not a modal). Mode selection
-          (vibe/spec) now lives in the ChatInput toolbar below, not here. */}
-      {isNewSession ? (
+      {/*
+        Three states, and the order matters.
+
+        LOADING beats EMPTY. A thread whose history is still in flight has no
+        messages yet, so the "is this a new session?" test says yes and the
+        welcome card wins — which is how clicking a long conversation used to
+        flash "What shall we build?" for a beat before the transcript replaced
+        it. Asking about loading FIRST means the gap shows a transcript-shaped
+        skeleton: the right screen, just not filled in.
+      */}
+      {threadLoading ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <TranscriptSkeleton />
+        </div>
+      ) : isNewSession ? (
         <WelcomeScreen />
       ) : (
         /* Messages */

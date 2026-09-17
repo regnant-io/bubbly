@@ -52,30 +52,38 @@
   justify-content: center;
 }
 
+/*
+ * `--accent-primary` was never defined anywhere, so this rule set the dots to
+ * nothing and the three hard-coded Solarized hexes below it were what actually
+ * painted them — in colours belonging to a palette the user may never have
+ * picked. Both are now the real tokens, so the loader re-skins with the app.
+ */
 .bubble-loader .bubble {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--accent-primary);
+  background: var(--primary);
   animation: bubblePulse 1.5s ease-in-out infinite;
 }
 
-.bubble-loader .bubble:nth-child(1) {
-  animation-delay: 0s;
-  background: #b58900; /* Solarized brown */
-}
+.bubble-loader .bubble:nth-child(1) { animation-delay: 0s; background: var(--primary); }
+.bubble-loader .bubble:nth-child(2) { animation-delay: 0.2s; background: var(--secondary); }
+.bubble-loader .bubble:nth-child(3) { animation-delay: 0.4s; background: var(--primary-hover); }
 
-.bubble-loader .bubble:nth-child(2) {
-  animation-delay: 0.2s;
-  background: #cb4b16; /* Solarized orange */
-}
-
-.bubble-loader .bubble:nth-child(3) {
-  animation-delay: 0.4s;
-  background: #b58900; /* Solarized yellow */
-}
-
-/* Skeleton loader animation */
+/*
+ * Skeleton placeholders.
+ *
+ * The old rule swept a gradient the width of the whole element, which made each
+ * placeholder pulse between two greys — fine for one, strobing for the forty
+ * that make up an app shell, and the effect got LOUDER the more of the screen
+ * was still loading, which is exactly backwards.
+ *
+ * It now delegates to `.sheen` (styles/motion.css): a narrow highlight passing
+ * over a settled surface. One texture for every loading state in the app, calm
+ * at any density, and composited so a shell full of them costs nothing.
+ *
+ * The `shimmer` keyframes are kept because older markup still names them.
+ */
 @keyframes shimmer {
   0% {
     background-position: -1000px 0;
@@ -86,15 +94,50 @@
 }
 
 .skeleton {
-  background: linear-gradient(
+  background-color: var(--surface-2);
+  background-image: linear-gradient(
     90deg,
-    var(--surface-2) 0%,
-    var(--surface-3) 50%,
-    var(--surface-2) 100%
+    transparent 0%,
+    rgb(var(--text-rgb) / 0.035) 42%,
+    rgb(var(--text-rgb) / 0.075) 50%,
+    rgb(var(--text-rgb) / 0.035) 58%,
+    transparent 100%
   );
-  background-size: 1000px 100%;
-  animation: shimmer 2s infinite linear;
+  background-size: 180% 100%;
+  background-repeat: no-repeat;
+  animation: motion-sheen 1.7s var(--ease-standard) infinite;
   border-radius: 4px;
+}
+
+/*
+ * Stagger the sheen down a stack of placeholders.
+ *
+ * Every skeleton on screen starting its pass on the same frame produces one
+ * synchronised flash across the whole shell, which reads as a glitch. Offsetting
+ * by depth turns the same animation into a slow wave travelling down the page —
+ * the difference between a screen that is broken and a screen that is arriving.
+ * Negative delays start each one mid-cycle, so nothing waits to begin.
+ */
+.skeleton-wave > *:nth-child(2) .skeleton,
+.skeleton-wave > *:nth-child(2).skeleton { animation-delay: -0.14s; }
+.skeleton-wave > *:nth-child(3) .skeleton,
+.skeleton-wave > *:nth-child(3).skeleton { animation-delay: -0.28s; }
+.skeleton-wave > *:nth-child(4) .skeleton,
+.skeleton-wave > *:nth-child(4).skeleton { animation-delay: -0.42s; }
+.skeleton-wave > *:nth-child(5) .skeleton,
+.skeleton-wave > *:nth-child(5).skeleton { animation-delay: -0.56s; }
+.skeleton-wave > *:nth-child(n+6) .skeleton,
+.skeleton-wave > *:nth-child(n+6).skeleton { animation-delay: -0.7s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    background-image: none;
+    animation: skeleton-reduced 2.6s ease-in-out infinite;
+  }
+  @keyframes skeleton-reduced {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 1; }
+  }
 }
 
 /* File tree expand/collapse animation */
@@ -201,9 +244,25 @@ body.tab-hidden * {
   animation-play-state: paused !important;
 }
 
-/* Reduced motion support for accessibility */
+/*
+ * Reduced motion support for accessibility.
+ *
+ * "Reduce" is not "remove". This rule used to be unconditional, and
+ * `animation-iteration-count: 1 !important` on the universal selector is
+ * stronger than anything a component can declare — so every LIVENESS indicator
+ * in the app (the agent-presence dot, the boot rail, every skeleton) played
+ * exactly one cycle and then froze. A frozen indicator during a four-minute
+ * agent run does not read as "considerate", it reads as "hung", and the user
+ * who asked for less motion is precisely the one left with no idea whether the
+ * app is still working.
+ *
+ * So the blanket rule now skips the classes that carry a reduced-motion
+ * variant of their own — each of those replaces travel and scale with a slow
+ * opacity breath, which conveys "alive" with no movement at all. Everything
+ * else, which is decoration, still collapses to nothing.
+ */
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.skeleton):not(.sheen):not(.sheen-text):not(.motion-breathe):not(.motion-halo):not(.motion-rail):not(.boot-rail):not(.bubbly-mark__bubble):not(.bubbly-mark__grid),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;

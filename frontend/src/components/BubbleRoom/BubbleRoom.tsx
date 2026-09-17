@@ -70,6 +70,10 @@ export function BubbleRoom() {
   }, [setLeftHidden, setNavHidden]);
 
   const handleThreadSelect = async (threadId: string) => {
+    // Flagged before the fetch so the conversation column shows a transcript
+    // skeleton for the gap, rather than the previous thread or the new-thread
+    // welcome card. See AppState.threadLoading.
+    useStore.getState().setThreadLoading(true);
     try {
       const { messages, plan, sessionChanges, error } = await loadThread(threadId);
       if (error) throw new Error(error);
@@ -98,6 +102,8 @@ export function BubbleRoom() {
     } catch (err) {
       console.error('Failed to load thread:', err);
       alert(err instanceof Error ? err.message : 'Failed to load thread');
+    } finally {
+      useStore.getState().setThreadLoading(false);
     }
   };
 
@@ -153,12 +159,18 @@ export function BubbleRoom() {
       <div className="flex flex-1 min-h-0 relative gap-2 p-2">
         {/* Mode-switch loading veil — a brief, deliberate transition. */}
         {modeSwitching && (
-          <div className="absolute inset-0 z-30 bg-surface-0/60 backdrop-blur-[1px] flex items-center justify-center animate-fade-in pointer-events-none">
+          /*
+            Three bouncing dots said "loading, indefinitely" for what is in fact
+            a fixed, very short local re-layout — and bouncing is the loudest
+            motion in the vocabulary, spent on the least important wait in the
+            app. A breathing dot and the destination's name say the same thing
+            in a quarter of the visual noise, and the veil itself carries the
+            "hold on" message perfectly well.
+          */
+          <div className="absolute inset-0 z-30 bg-surface-0/60 backdrop-blur-[1px] flex items-center justify-center motion-appear pointer-events-none">
             <div className="flex items-center gap-2 text-sm text-text-muted">
-              <span className="w-2 h-2 rounded-full bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-2 h-2 rounded-full bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-2 h-2 rounded-full bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
-              <span className="ml-1">Switching to {uiMode === 'editor' ? 'Editor' : 'Agents'}…</span>
+              <span className="motion-breathe w-1.5 h-1.5 rounded-full bg-accent" />
+              <span>Switching to {uiMode === 'editor' ? 'Editor' : 'Agents'}…</span>
             </div>
           </div>
         )}

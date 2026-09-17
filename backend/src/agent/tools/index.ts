@@ -738,32 +738,135 @@ export type ToolExecutionResult = {
   images?: ToolResultImage[];
 };
 
-/** Whether the currently-selected model can accept image input. For Ollama we
- *  resolve the model's REAL capabilities via /api/show (accurate for models
- *  whose name gives no hint, e.g. minimax); Claude/Gemini are always vision.
- *  Falls back to the name heuristic if the probe is inconclusive. */
+/**
+ * Can the model that is ACTUALLY selected read an image?
+ *
+ * The old version asked this question of the wrong model. After the
+ * claude/gemini shortcut it read `ollamaModel` unconditionally and handed that
+ * string to the Ollama probe and the Ollama name heuristic — so with OpenRouter
+ * selected, the answer came from whatever happened to be sitting in the Ollama
+ * setting. Both directions of that are bugs, and one of them is expensive: a
+ * "yes" from a stale Ollama name attaches a screenshot to a text-only
+ * OpenRouter model, the request is refused, and the refusal repeats on every
+ * later turn because the image is now part of the conversation.
+ *
+ * So: resolve the model from the provider first, and only take the Ollama
+ * probe path when the provider is in fact Ollama.
+ */
 async function activeModelSupportsVision(): Promise<boolean> {
   const provider = getSetting('defaultProvider') || 'claude';
   if (provider === 'claude' || provider === 'gemini') return true;
+
+  if (provider === 'openrouter') {
+    return supportsVision('openrouter', getSetting('openrouterModel') || '');
+  }
+
   const model = getSetting('ollamaModel') || '';
   const baseUrl = getSetting('ollamaBaseUrl') || 'http://localhost:11434';
   try {
+    // The accurate answer, straight from the server that holds the model.
     const resolved = await resolveModelVision(baseUrl, model);
     if (resolved !== null) return resolved;
-  } catch { /* fall back to heuristic */ }
+  } catch { /* fall back to the heuristic */ }
   return supportsVision('ollama', model);
 }
 
-/** Read a PNG/JPEG file into a base64 image block for the model, capped for
- *  safety. Returns undefined if the file can't be read. */
-function fileToToolImage(filePath: string): ToolResultImage | undefined {
+/**
+ * The provider's limits on a single image, and why they are enforced HERE.
+ *
+ * Anthropic rejects an image whose base64 payload exceeds 5MB, or whose longest
+ * edge exceeds 8000px, with a 400. A 400 is not a transient failure: the frame
+ * is already in the message history by the time the request is made, so every
+ * subsequent request in that thread carries it and fails identically. That is
+ * the "a screenshot errored and now this thread is broken forever" report — one
+ * capture of a large or multi-monitor desktop, and the conversation could never
+ * be resumed.
+ *
+ * The old cap was 5,000,000 RAW bytes, which is the wrong quantity: base64
+ * inflates by 4/3, so a 4.9MB PNG passed the check and arrived at the API as a
+ * 6.5MB payload. The budget below is on the ENCODED size, and the dimension
+ * check is a straight read of the PNG header.
+ */
+const IMAGE_MAX_BASE64_BYTES = 4_600_000;
+const IMAGE_MAX_EDGE_PX = 8000;
+
+/**
+ * Read a PNG's intrinsic size from its IHDR chunk.
+ *
+ * The header is fixed-layout — 8-byte signature, 4-byte length, "IHDR", then
+ * two big-endian 32-bit integers — so this needs no image library and no
+ * decode. Returns null for anything that is not a PNG (a JPEG falls through to
+ * the byte-size check alone, which is the conservative direction).
+ */
+function pngDimensions(buf: Buffer): { width: number; height: number } | null {
+  if (buf.length < 24) return null;
+  if (buf.readUInt32BE(0) !== 0x89504e47 || buf.readUInt32BE(4) !== 0x0d0a1a0a) return null;
+  if (buf.toString('ascii', 12, 16) !== 'IHDR') return null;
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
+/** Why a captured frame cannot be handed to the model, in words the model can
+ *  act on. `null` means it can. */
+function imageRejectionReason(buf: Buffer, isPng: boolean): string | null {
+  if (buf.length === 0) return 'the capture was empty';
+  const encodedBytes = Math.ceil(buf.length / 3) * 4;
+  if (encodedBytes > IMAGE_MAX_BASE64_BYTES) {
+    return `it is ${(encodedBytes / 1_000_000).toFixed(1)}MB once encoded, over the ${(IMAGE_MAX_BASE64_BYTES / 1_000_000).toFixed(1)}MB per-image limit`;
+  }
+  if (isPng) {
+    const dim = pngDimensions(buf);
+    if (dim && (dim.width > IMAGE_MAX_EDGE_PX || dim.height > IMAGE_MAX_EDGE_PX)) {
+      return `it is ${dim.width}x${dim.height}, over the ${IMAGE_MAX_EDGE_PX}px limit on a single edge`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Read a PNG/JPEG file into a base64 image block for the model.
+ *
+ * Returns the block, or the REASON it cannot be sent. Returning a reason rather
+ * than a bare `undefined` matters: silently dropping the frame left the model
+ * being told a screenshot had been taken while seeing nothing, so it would
+ * confidently describe a page it had never looked at.
+ */
+export function fileToToolImage(filePath: string): { image: ToolResultImage } | { reason: string } {
+  let buf: Buffer;
   try {
-    const buf = fsSync.readFileSync(filePath);
-    // Guard against oversized frames (base64 is ~1.33x). ~5MB PNG cap.
-    if (buf.length > 5_000_000) return undefined;
-    const ext = filePath.toLowerCase().endsWith('.jpg') || filePath.toLowerCase().endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
-    return { mediaType: ext, data: buf.toString('base64') };
-  } catch { return undefined; }
+    buf = fsSync.readFileSync(filePath);
+  } catch {
+    return { reason: 'the capture could not be read back from disk' };
+  }
+  const lower = filePath.toLowerCase();
+  const isJpeg = lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+  const reason = imageRejectionReason(buf, !isJpeg);
+  if (reason) return { reason };
+  return { image: { mediaType: isJpeg ? 'image/jpeg' : 'image/png', data: buf.toString('base64') } };
+}
+
+/**
+ * Attach a captured frame to a tool result, or explain its absence.
+ *
+ * One helper for both call sites (computer control and browser control) so the
+ * two can never drift into disagreeing about what the model is allowed to see.
+ */
+async function attachScreenshot(
+  result: { result: string; images?: ToolResultImage[] },
+  screenshotPath: string,
+): Promise<void> {
+  if (!(await activeModelSupportsVision())) {
+    result.result += '\n(Screenshot captured but not sent to the model — the active model has no vision support. Switch to a vision-capable model to have the agent see it.)';
+    return;
+  }
+  const outcome = fileToToolImage(screenshotPath);
+  if ('image' in outcome) {
+    result.images = [outcome.image];
+    return;
+  }
+  result.result +=
+    `\n(Screenshot saved to ${screenshotPath} but NOT sent to the model, because ${outcome.reason}. ` +
+    `You have not seen this frame — do not describe it. Capture a smaller region, or reduce the viewport / display resolution, and try again.)`;
+  logger.warn('Screenshot dropped before reaching the model', { screenshotPath, reason: outcome.reason });
 }
 
 /**
@@ -1293,14 +1396,7 @@ export async function executeTool(
         }
         const r = await runComputerAction(validated.action, validated.params);
         result = { result: r.result };
-        if (r.screenshotPath) {
-          if (await activeModelSupportsVision()) {
-            const img = fileToToolImage(r.screenshotPath);
-            if (img) result.images = [img];
-          } else {
-            result.result += '\n(Screenshot captured but not sent to the model — the active model has no vision support. Switch to a vision-capable model to have the agent see it.)';
-          }
-        }
+        if (r.screenshotPath) await attachScreenshot(result, r.screenshotPath);
         toolLogger.info('Computer control action', { action: validated.action, ok: r.ok });
         break;
       }
@@ -1493,14 +1589,7 @@ export async function executeTool(
         // when the active model can actually read images; otherwise this would
         // either crash the request or silently get stripped several round-trips
         // later, so resolve it up front instead.
-        if (v.action === 'screenshot' && r.screenshotPath) {
-          if (await activeModelSupportsVision()) {
-            const img = fileToToolImage(r.screenshotPath);
-            if (img) result.images = [img];
-          } else {
-            result.result += '\n(Screenshot captured but not sent to the model — the active model has no vision support. Switch to a vision-capable model to have the agent see it.)';
-          }
-        }
+        if (v.action === 'screenshot' && r.screenshotPath) await attachScreenshot(result, r.screenshotPath);
         toolLogger.info('Browser control action', { action: v.action, ok: r.ok });
         break;
       }

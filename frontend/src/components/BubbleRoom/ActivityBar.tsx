@@ -1,6 +1,7 @@
 import React from 'react';
 import { useStore } from '../../store';
 import { isDesktop } from '../../hooks/useDesktop';
+import { BubblyMark } from '../Shared/BubblyMark';
 import {
   MessageSquare,
   Folder,
@@ -125,17 +126,19 @@ export function ActivityBar() {
       {/* Brand — browser only. The desktop shell shows it in the title bar, so
           repeating it here would just cost a row. */}
       {!isDesktop() && (
+        /*
+          THE APP HAS ONE MARK.
+
+          This slot used to draw its own logo: a single purple gradient circle,
+          hard-coded to #a78bfa / #5b21b6. The title bar, the boot screen, the
+          welcome screen and the agent-presence indicator all draw BubblyMark —
+          four bubbles in the palette's accent — so the browser build showed two
+          different logos in the same window, one of them in a colour belonging
+          to no palette the app ships. Reusing the real mark also means it
+          breathes when the agent is working, like every other instance of it.
+        */
         <div className="h-9 flex items-center justify-center mb-0.5" title="Bubbly">
-          <svg viewBox="0 0 32 32" className="w-5 h-5">
-            <defs>
-              <radialGradient id="ab-bubble" cx="40%" cy="35%" r="65%">
-                <stop offset="0%" stopColor="#a78bfa" />
-                <stop offset="100%" stopColor="#5b21b6" />
-              </radialGradient>
-            </defs>
-            <circle cx="16" cy="16" r="13" fill="url(#ab-bubble)" />
-            <circle cx="11" cy="11" r="3" fill="white" fillOpacity="0.3" />
-          </svg>
+          <BubblyMark size={18} animation="breathe" />
         </div>
       )}
 

@@ -9,21 +9,29 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script>
-      // Prevent flash of unstyled content — apply theme before render.
-      // On first load (no stored preference) default to the OS color scheme.
+      // Paint the correct colours BEFORE anything renders.
+      //
+      // Both axes, not just one. This used to set data-theme (light/dark) and
+      // leave data-palette to the React hook, so the first frames of every cold
+      // start were the DEFAULT palette in the right mode and the app visibly
+      // re-coloured itself once the bundle had parsed. Reading both here costs
+      // two localStorage lookups and removes the flash entirely.
+      //
+      // On first ever load there is no stored preference, so the OS decides.
       (function() {
+        var root = document.documentElement;
         try {
-          var stored = localStorage.getItem('bubbly-theme');
-          var theme = stored || 'system';
+          var theme = localStorage.getItem('bubbly-theme') || 'system';
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
           var isDark = theme === 'dark' || (theme === 'system' && prefersDark);
-          var root = document.documentElement;
           root.setAttribute('data-theme', isDark ? 'dark' : 'light');
           if (isDark) root.classList.add('dark');
           else root.classList.remove('dark');
+          var palette = localStorage.getItem('bubbly-palette');
+          if (palette) root.setAttribute('data-palette', palette);
         } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark');
-          document.documentElement.classList.add('dark');
+          root.setAttribute('data-theme', 'dark');
+          root.classList.add('dark');
         }
       })();
     </script>

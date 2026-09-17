@@ -108,8 +108,17 @@ function ActivityCard() {
         <div className="flex-1 grid grid-cols-3 gap-1 text-left">
           {headline.map((t) => (
             <div key={t.label}>
-              <div className="text-[15px] font-semibold text-text tabular-nums leading-none">
-                {loading ? '···' : t.value}
+              {/*
+                A placeholder the SIZE of the number it stands in for, not an
+                ellipsis. "···" is narrower than "12.4K", so every stat visibly
+                jumped sideways the moment the fetch landed — a three-column row
+                snapping into place is exactly the kind of small wrongness that
+                makes a UI feel unfinished without anyone being able to say why.
+              */}
+              <div className="h-[15px] flex items-center">
+                {loading
+                  ? <div className="skeleton" style={{ width: 34, height: 10, borderRadius: 999 }} />
+                  : <span className="text-[15px] font-semibold text-text tabular-nums leading-none">{t.value}</span>}
               </div>
               <div className="text-[9px] uppercase tracking-wide text-text-dim mt-0.5">{t.label}</div>
             </div>
@@ -200,19 +209,30 @@ export function WelcomeScreen({ greetingName }: { greetingName?: string }) {
             What are we working on today?
           </h2>
 
-          <div className="flex flex-wrap items-center gap-2">
+          {/*
+            The chips arrive in reading order rather than all at once.
+
+            `key={seed}` on the row is doing real work: pressing "more ideas"
+            remounts it, so a new set of suggestions gets the same left-to-right
+            entrance the first set did. Without it React would reuse the same
+            four buttons and the labels would simply change in place, which
+            reads as a glitch rather than as an answer to the click.
+          */}
+          <div key={seed} className="motion-stagger flex flex-wrap items-center gap-2">
             {suggestions.map((s) => {
               const Icon = CHIP_ICON[s.kind];
               return (
                 <button
                   key={s.label}
                   onClick={() => setChatDraft(s.prompt)}
-                  className="group inline-flex items-center gap-2 rounded-lg border border-border bg-surface-1
-                             hover:bg-surface-2 hover:border-border-bright px-3 py-2 text-[13px]
-                             text-text-muted hover:text-text transition-colors"
+                  className="motion-rise group inline-flex items-center gap-2 rounded-lg border border-border bg-surface-1
+                             hover:bg-surface-2 hover:border-accent/40 px-3 py-2 text-[13px]
+                             text-text-muted hover:text-text
+                             transition-[background-color,border-color,color,transform] duration-150 ease-out
+                             hover:-translate-y-px active:translate-y-0 active:scale-[0.985]"
                   title={s.prompt}
                 >
-                  <Icon size={14} className={`${CHIP_TINT[s.kind]} shrink-0`} />
+                  <Icon size={14} className={`${CHIP_TINT[s.kind]} shrink-0 transition-transform duration-150 ease-out group-hover:scale-110`} />
                   <span>{s.label}</span>
                 </button>
               );

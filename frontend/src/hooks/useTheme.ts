@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { DEFAULT_PALETTE_ID, getPalette } from '../styles/palettes';
 
@@ -8,6 +8,27 @@ function rgbToHex(rgb: string): string | null {
   if (!m) return /^#[0-9a-f]{6}$/i.test(rgb.trim()) ? rgb.trim() : null;
   const hex = (n: string) => Number(n).toString(16).padStart(2, '0');
   return `#${hex(m[1])}${hex(m[2])}${hex(m[3])}`;
+}
+
+/**
+ * Cross-fade the app between two palettes.
+ *
+ * The colour transition is a CLASS on <html> (see styles/motion.css) rather
+ * than a permanent rule on the universal selector, so it has to be added for
+ * the length of the swap and taken off again. Everything is timer-based rather
+ * than transitionend-based on purpose: `transitionend` fires once per property
+ * per element, which on a full app is thousands of events for one swap.
+ *
+ * Nothing calls this on the FIRST paint — a page that fades in from the wrong
+ * colours is worse than one that simply starts correct.
+ */
+let themeTransitionTimer: ReturnType<typeof setTimeout> | undefined;
+function withThemeTransition(apply: () => void) {
+  const root = document.documentElement;
+  root.classList.add('theme-transition');
+  apply();
+  clearTimeout(themeTransitionTimer);
+  themeTransitionTimer = setTimeout(() => root.classList.remove('theme-transition'), 320);
 }
 
 /**
@@ -29,10 +50,23 @@ function rgbToHex(rgb: string): string | null {
 export function useTheme() {
   const { theme, palette, resolvedTheme, setResolvedTheme } = useStore();
 
+  /**
+   * Is this the first run of the effects below?
+   *
+   * The initial application of the theme happens with the screen already
+   * painted in the right colours (index.html does it inline before React
+   * loads), so animating it would be a fade from correct to correct — visible
+   * work for no information. Every LATER change is a real change and gets the
+   * cross-fade.
+   */
+  const firstApply = useRef(true);
+
   // --- Palette ---------------------------------------------------------------
   useEffect(() => {
     const id = getPalette(palette || DEFAULT_PALETTE_ID).id;
-    document.documentElement.setAttribute('data-palette', id);
+    const apply = () => document.documentElement.setAttribute('data-palette', id);
+    if (firstApply.current) apply();
+    else withThemeTransition(apply);
     try { localStorage.setItem('bubbly-palette', id); } catch { /* private mode */ }
   }, [palette]);
 
@@ -41,9 +75,13 @@ export function useTheme() {
     const root = document.documentElement;
 
     const applyTheme = (isDark: boolean) => {
-      root.setAttribute('data-theme', isDark ? 'dark' : 'light');
-      if (isDark) root.classList.add('dark');
-      else root.classList.remove('dark');
+      const apply = () => {
+        root.setAttribute('data-theme', isDark ? 'dark' : 'light');
+        if (isDark) root.classList.add('dark');
+        else root.classList.remove('dark');
+      };
+      if (firstApply.current) { apply(); firstApply.current = false; }
+      else withThemeTransition(apply);
       setResolvedTheme(isDark ? 'dark' : 'light');
     };
 

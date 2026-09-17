@@ -196,7 +196,7 @@ export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, d
   }, [done, liveDetail]);
 
   return (
-    <div className="group my-1 animate-fade-in">
+    <div className="group my-1 motion-rise">
       <div
         {...(shortcutIndex ? { 'data-tc-index': shortcutIndex } : {})}
         className={`flex items-baseline gap-1.5 py-0.5 text-[13px] leading-relaxed ${
@@ -218,20 +218,24 @@ export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, d
             ? <Loader2 size={11} className="animate-spin text-text-dim" />
             : isError
             ? <span className="text-red-agent text-[11px] font-bold">!</span>
-            : <Check size={11} className="text-text-dim/50 group-hover:text-green-agent transition-colors" />}
+            /* The tick is keyed on the transition to `complete`, so it plays its
+               settle exactly once — when the step actually finished — instead of
+               replaying on every parent re-render during a busy stream. */
+            : <Check key="done" size={11} className="tool-tick text-text-dim/50 group-hover:text-green-agent transition-colors" />}
         </span>
 
         <span className="flex-1 min-w-0 truncate">
-          <span className={`${isError ? 'text-red-agent' : 'text-text-muted'} ${status === 'executing' ? 'shimmer-text' : ''}`}>
+          <span className={`${isError ? 'text-red-agent' : 'text-text-muted'} ${status === 'executing' ? 'sheen-text' : ''}`}>
             {verb}
           </span>
           {pathParts ? (
             <>
               <span className="text-text-dim"> (</span>
               <span
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors ${
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono
+                  transition-[background-color,color,box-shadow] duration-150 ease-out ${
                   done
-                    ? 'bg-accent/10 text-accent-bright cursor-pointer hover:bg-accent/20'
+                    ? 'bg-accent/10 text-accent-bright cursor-pointer hover:bg-accent/20 hover:shadow-[0_0_0_1px_rgb(var(--primary-rgb)/0.35)]'
                     : 'bg-surface-2 text-text-dim'
                 }`}
                 onClick={done ? handlePathClick : undefined}

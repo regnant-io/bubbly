@@ -9,10 +9,27 @@
 @import './styles/syntax.css';
 /* Import markdown content styles */
 @import './styles/markdown.css';
+/* Motion tokens (durations, curves) + the shared entrance/loading vocabulary.
+   Imported BEFORE animations.css so the older keyframes can consume the tokens. */
+@import './styles/motion.css';
 /* Import animation system */
 @import './styles/animations.css';
-/* Import modern glassmorphic design system */
-@import './styles/glassmorphic.css';
+/*
+ * styles/glassmorphic.css is gone.
+ *
+ * It was 547 lines describing a SECOND, competing design system — .glass,
+ * .card-modern, .btn-modern, .input-glass, three shadow scales and three
+ * gradients — and not one of its classes was referenced by a single component.
+ * Dead CSS is not free: it shipped in every build, and it is the first thing
+ * anyone reads when they go looking for how a surface is styled, which means
+ * every future change starts by being told a lie about which system is in use.
+ *
+ * It also quietly OVERRODE a live class. `.floating-container` is defined in
+ * this file inside `@layer components`; glassmorphic.css redefined it outside
+ * any layer, and unlayered rules beat layered ones regardless of order — so the
+ * flat-card definition below was being silently replaced by a blurred glass
+ * panel with a ::before overlay and a hover transform.
+ */
 
 @tailwind base;
 @tailwind components;
@@ -152,13 +169,75 @@
   background: transparent !important;
 }
 
-/* Typing cursor */
-.typing-cursor::after {
-  content: '▋';
-  animation: blink 1s step-end infinite;
-  color: var(--primary);
+/*
+ * THE STREAMING CARET
+ *
+ * Two problems with the old one, both visible on every single answer.
+ *
+ * WHERE IT WAS. The rule was `.typing-cursor::after` on the message WRAPPER,
+ * and the wrapper's last child is a block element (a <p>, a list, a fenced code
+ * block). Generated content after a block starts a new line — so the caret sat
+ * on a line of its own under the paragraph, dragging the composer down by a
+ * full line and hopping back up when the answer finished. Anchoring it to the
+ * last child instead puts it in the text flow, immediately after the final
+ * word, which is where a caret belongs.
+ *
+ * WHAT IT WAS. `▋` is a full block glyph: it renders at the font's own weight,
+ * in whatever the font decides, and it is roughly four times heavier than the
+ * text it follows. A 2px rounded bar the height of a lowercase letter reads as
+ * a cursor at any size and never competes with the prose.
+ *
+ * The blink is a soft fade rather than a hard step. A step-blink is a light
+ * switching on and off next to text somebody is reading; a fade is a pulse
+ * beside it.
+ */
+.typing-cursor > .markdown-content > :last-child::after,
+.typing-cursor > .markdown-content > :last-child > :last-child::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  border-radius: 1px;
+  vertical-align: -0.13em;
+  background-color: var(--primary);
+  animation: caret-blink 1.1s ease-in-out infinite;
 }
 
+/*
+ * The caret hangs off the innermost last element, not off the wrapper.
+ *
+ * MarkdownContent renders `<div class="markdown-content">` around the parsed
+ * output, so the message wrapper's last child is that container — generated
+ * content after IT is still after a block box, and the caret still lands on its
+ * own line. Two levels down reaches the final <p> (or <li>, or table), which is
+ * an inline formatting context, so the caret sits after the last word.
+ *
+ * The second selector handles a final list or blockquote, whose own last child
+ * is the element carrying the text.
+ *
+ * Nested carets are impossible in practice — the two selectors describe
+ * different depths of the same subtree and only the deepest matching element
+ * has inline content — but a list is the one shape where both could match, so
+ * the outer one is suppressed there.
+ */
+.typing-cursor > .markdown-content > ul::after,
+.typing-cursor > .markdown-content > ol::after,
+.typing-cursor > .markdown-content > blockquote::after {
+  content: none;
+}
+
+@keyframes caret-blink {
+  0%, 45%   { opacity: 1; }
+  70%, 100% { opacity: 0.15; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-cursor > .markdown-content > :last-child::after,
+  .typing-cursor > .markdown-content > :last-child > :last-child::after { animation: none; opacity: 0.75; }
+}
+
+/* Kept: older markup still names `blink`. */
 @keyframes blink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }

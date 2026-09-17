@@ -9,6 +9,7 @@ import {
   FilePlus, FolderPlus, Pencil, Copy, Trash2, ExternalLink, File as FileIcon,
   ChevronsDownUp,
 } from '../Shared/icons';
+import { FileTreeSkeleton } from '../Shared/SkeletonLoader';
 import { useAppContextMenu } from '../Shared/ContextMenu';
 import { PanelHeader, PanelHeaderButton } from '../Shared/PanelHeader';
 import { getFileIcon, getFolderIcon } from './fileIcons';
@@ -387,7 +388,10 @@ export function FileExplorer() {
         {...bind(rootMenuItems)}
       >
         {rootLoading && total === 0 ? (
-          <div className="px-3 py-4 text-xs text-text-dim animate-pulse">Loading…</div>
+          /* A tree-shaped placeholder rather than the word "Loading". The rows
+             land at the same heights and indents the real entries will use, so
+             the tree fills in rather than replacing itself. */
+          <FileTreeSkeleton rows={12} />
         ) : total === 0 ? (
           <div className="px-3 py-4 text-xs text-text-dim">{filter ? 'No matches in open folders' : 'Empty'}</div>
         ) : (

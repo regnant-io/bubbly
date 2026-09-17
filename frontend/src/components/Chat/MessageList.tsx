@@ -7,7 +7,7 @@ import { ApprovalPreparingCard } from '../Shared/ApprovalPreparingCard';
 import { TerminalOutput } from '../Shared/TerminalOutput';
 import { MarkdownContent } from '../Shared/MarkdownContent';
 import { ThinkingBubble } from '../Shared/ThinkingBubble';
-import { TwoBubbleLoader } from '../Shared/TwoBubbleLoader';
+import { AgentPresence } from '../Shared/AgentPresence';
 import { DelegationCard } from '../Shared/DelegationCard';
 import { ParallelAgentsPanel } from '../Shared/ParallelAgentsPanel';
 import { Sparkles, AlertCircle, Info, Search, X, ChevronUp, ChevronDown } from '../Shared/icons';
@@ -95,7 +95,7 @@ const AssistantMessage = React.memo(function AssistantMessage({ content, streami
   const { bind } = useAppContextMenu();
   return (
     <div
-      className={`${grouped ? 'mb-2' : 'mb-3'} animate-fade-in`}
+      className={`${grouped ? 'mb-2' : 'mb-3'} motion-rise`}
       {...bind([{ label: 'Copy message', onSelect: () => navigator.clipboard?.writeText(content), disabled: !content }])}
     >
       <div className={`text-sm text-text leading-relaxed ${streaming ? 'typing-cursor' : ''}`}>
@@ -122,7 +122,7 @@ const AssistantMessage = React.memo(function AssistantMessage({ content, streami
 const NoticeMessage = React.memo(function NoticeMessage({ title, content }: { title: string; content: string }) {
   const [collapsed, setCollapsed] = React.useState(false);
   return (
-    <div className="mb-3 animate-fade-in rounded-xl border border-border bg-surface-2/60 overflow-hidden">
+    <div className="mb-3 motion-rise rounded-xl border border-border bg-surface-2/60 overflow-hidden">
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3/50 transition-colors"
@@ -706,6 +706,17 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
           </div>
         );
       })}
+
+      {/*
+        The gap between "the turn started" and "something came back".
+
+        Inline at the END of the transcript rather than floating over it, so it
+        occupies the exact place the next message will occupy — the answer then
+        replaces it in position instead of appearing somewhere else while a
+        detached pill fades out. It also means the auto-scroll that keeps the
+        transcript pinned to the bottom keeps THIS in view for free.
+      */}
+      {isRunning && <AgentPresence />}
       </div>
       </div>
 

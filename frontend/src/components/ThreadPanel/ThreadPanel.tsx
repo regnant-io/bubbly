@@ -12,6 +12,7 @@ import {
   Zap,
   AlertCircle
 } from '../Shared/icons';
+import { ThreadListSkeleton } from '../Shared/SkeletonLoader';
 
 interface ThreadMetadata {
   id: string;
@@ -255,21 +256,15 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
               Try Again
             </button>
           </div>
+        ) : loading && threads.length === 0 ? (
+          /* Rows at the real height, not a centred spinner. The first fetch of
+             a large history is the slowest one, and it is the one where a
+             spinner in the middle of an empty panel tells you least. */
+          <ThreadListSkeleton rows={8} />
         ) : threads.length === 0 ? (
           <div className="text-center py-8 text-text-dim text-sm">
-            {loading ? (
-              <>
-                <RefreshCw size={24} className="mx-auto mb-2 opacity-30 animate-spin" />
-                Loading threads...
-              </>
-            ) : (
-              <>
-                <MessageSquare size={24} className="mx-auto mb-2 opacity-30" />
-                {searchQuery || filterType !== 'all' 
-                  ? 'No threads found' 
-                  : 'No threads yet'}
-              </>
-            )}
+            <MessageSquare size={24} className="mx-auto mb-2 opacity-30" />
+            {searchQuery || filterType !== 'all' ? 'No threads found' : 'No threads yet'}
           </div>
         ) : (
           <div className="divide-y divide-border">

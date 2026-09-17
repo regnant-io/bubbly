@@ -84,10 +84,21 @@ describe('SkeletonLoader', () => {
     const { container } = render(<SkeletonLoader count={3} variant="text" />);
     const skeletons = container.querySelectorAll('.skeleton') as NodeListOf<HTMLElement>;
     const lastSkeleton = skeletons[skeletons.length - 1];
-    
+
     // Last line should have a percentage width (not 100%)
     expect(lastSkeleton.style.width).toMatch(/%$/);
     expect(lastSkeleton.style.width).not.toBe('100%');
+  });
+
+  it('renders the same widths on every render', () => {
+    // The widths used to come from Math.random(), so a re-render silently
+    // reflowed the placeholder while the user was looking at it.
+    const first = render(<SkeletonLoader count={4} variant="text" />);
+    const widthsOf = (c: HTMLElement) =>
+      Array.from(c.querySelectorAll('.skeleton')).map((el) => (el as HTMLElement).style.width);
+    const before = widthsOf(first.container);
+    first.rerender(<SkeletonLoader count={4} variant="text" />);
+    expect(widthsOf(first.container)).toEqual(before);
   });
 });
 
@@ -104,10 +115,10 @@ describe('SkeletonApprovalBlock', () => {
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
-  it('has fade-enter animation class', () => {
+  it('enters with the shared rise animation', () => {
     const { container } = render(<SkeletonApprovalBlock />);
     const approvalBlock = container.querySelector('.skeleton-approval-block');
-    expect(approvalBlock).toHaveClass('fade-enter');
+    expect(approvalBlock).toHaveClass('motion-rise');
   });
 
   it('includes circular skeleton for icon', () => {

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index';
 import { logger } from '../utils/logger';
-import type { Session, Message, DBMessage, ThreadType, ThreadMetadata, PlanStep, SessionChange, ModelProvider } from '../types';
+import type { Session, Message, ContentBlock, DBMessage, ThreadType, ThreadMetadata, PlanStep, SessionChange, ModelProvider } from '../types';
 
 export function createSession(params: {
   workspacePath: string;
@@ -236,6 +236,36 @@ export function saveMessage(
 }
 
 /**
+ * A screenshot is worth keeping in the LIVE turn and never worth keeping on
+ * disk.
+ *
+ * Two reasons, and the second one is a bug report:
+ *
+ *  1. Size. A frame is a multi-megabyte base64 string. Writing it into the
+ *     messages table puts it in every read of that thread forever, for a
+ *     picture that has already served its purpose — `contextManager` drops
+ *     images from compacted turns for exactly the same reason.
+ *
+ *  2. Durability of failures. If a frame is one the provider refuses (too
+ *     large, too many pixels), a persisted copy makes that refusal permanent:
+ *     the thread reloads with the poison still in it and 400s on every
+ *     subsequent turn, which is what "the thread errors forever after a
+ *     screenshot" was. Live-only images mean the worst case is one bad turn.
+ *
+ * The text of the tool result still says a screenshot was taken, so a reloaded
+ * conversation reads correctly — it just cannot re-show the model a picture it
+ * has already looked at.
+ */
+function stripImagesForStorage(blocks: ContentBlock[]): ContentBlock[] {
+  return blocks.map((b) => {
+    if (b.type !== 'tool_result' || !b.images || b.images.length === 0) return b;
+    const { images, ...rest } = b;
+    const note = `\n(${images.length === 1 ? 'A screenshot was' : `${images.length} screenshots were`} shown to the model during this turn; not retained in the transcript.)`;
+    return { ...rest, content: rest.content + note };
+  });
+}
+
+/**
  * Persist a full assistant/user turn, preserving structured content blocks
  * (text + tool_use / tool_result) so the conversation reloads losslessly.
  * This is the memory-safe path the agent loop should use.
@@ -250,7 +280,7 @@ export function saveTurn(sessionId: string, message: Message): string {
     .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
     .map((b) => b.text)
     .join('\n');
-  return saveMessage(sessionId, message.role, textProjection, message.content);
+  return saveMessage(sessionId, message.role, textProjection, stripImagesForStorage(message.content));
 }
 
 export function getMessages(sessionId: string): Message[] {

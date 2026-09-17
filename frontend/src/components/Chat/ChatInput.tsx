@@ -388,10 +388,31 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
           </div>
         </div>
 
+        {/*
+          THE COMPOSER'S FOCUS STATE IS A RING, NOT A BORDER COLOUR.
+
+          A 1px border going from hairline to accent is almost invisible against
+          a card that already has a border - you have to look for it to see it,
+          which is the opposite of what a focus affordance is for. A soft ring
+          laid OUTSIDE the border reads instantly and, because it is a
+          box-shadow, changes nothing about the box's geometry: no reflow, no
+          1px jump of the text you are typing.
+
+          While the agent is running the ring warms up on its own, without
+          focus. The composer is not locked during a turn (a queued message
+          joins the run at its next step), and a live control that looks
+          identical to a dead one is why people press Stop when they only meant
+          to add a note.
+        */}
         <div
           ref={composerRef}
-          className={`relative flex items-end gap-2 rounded-2xl border bg-surface-1 shadow-sm px-3 py-2 transition-colors ${
-            disabled ? 'border-border opacity-50' : 'border-border focus-within:border-accent/50'
+          className={`relative flex items-end gap-2 rounded-2xl border bg-surface-1 px-3 py-2
+                      transition-[box-shadow,border-color,opacity] duration-150 ease-out ${
+            disabled
+              ? 'border-border opacity-50 shadow-sm'
+              : isRunning
+              ? 'border-accent/35 shadow-[0_0_0_3px_rgb(var(--primary-rgb)/0.07)]'
+              : 'border-border shadow-sm focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_rgb(var(--primary-rgb)/0.12)]'
           }`}
         >
         {/* Workflow picker, above the composer */}
@@ -426,7 +447,8 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled || isRunning}
           title={isRunning ? 'Attachments have to wait for the turn to finish' : 'Attach files or images'}
-          className="p-1.5 shrink-0 rounded-lg text-text-dim hover:text-text hover:bg-surface-3 disabled:opacity-40 transition-colors"
+          className="p-1.5 shrink-0 rounded-lg text-text-dim hover:text-text hover:bg-surface-3 disabled:opacity-40
+                     transition-[background-color,color,transform] duration-150 ease-out enabled:active:scale-90"
         >
           <Paperclip size={18} />
         </button>
@@ -460,12 +482,25 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
           <button
             onClick={() => setShowOptions(!showOptions)}
             disabled={disabled}
-            className="p-1.5 rounded-lg text-text-dim hover:text-text hover:bg-surface-3 disabled:opacity-40 transition-colors"
+            className="p-1.5 rounded-lg text-text-dim hover:text-text hover:bg-surface-3 disabled:opacity-40
+                       transition-[background-color,color,transform] duration-150 ease-out enabled:active:scale-90"
             title="Options"
           >
             <ChevronUp size={18} className={`transition-transform ${showOptions ? 'rotate-180' : ''}`} />
           </button>
 
+          {/*
+            The send button EARNS its colour. Empty, it is a flat disabled
+            shape; the moment there is something to send it lifts to full accent
+            and takes a soft glow, so "ready to send" is legible from the corner
+            of the eye without having to read the button. Compressing on press is
+            the whole of the tactile feedback - the click is acknowledged before
+            the message has left.
+
+            While a turn is running the same button QUEUES instead, and says so:
+            it drops to a tinted variant so it never looks like the button that
+            starts a new turn.
+          */}
           {isRunning ? (
             <>
               {/* Queue, not send. Enabled only when there is something to say
@@ -475,7 +510,9 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
                 onClick={handleSend}
                 disabled={!value.trim() || queueFull || !onQueue}
                 className="p-2 rounded-lg bg-accent/20 hover:bg-accent/30 text-accent-bright
-                           disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+                           disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center
+                           transition-[background-color,transform,opacity] duration-150 ease-out
+                           enabled:active:scale-90"
                 title={
                   queueFull ? 'Three messages are already waiting — the agent reads them at its next step'
                   : !value.trim() ? 'Type something to queue it for the running agent'
@@ -484,10 +521,17 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
               >
                 <Send size={16} />
               </button>
+              {/*
+                Stop is the one destructive control in the composer, so it is the
+                only one that does NOT spring on press. A satisfying little
+                bounce on the button that throws away a two-minute turn is the
+                wrong feeling to design in.
+              */}
               <button
                 onClick={onStop}
                 className="p-2 rounded-lg bg-error-bg hover:bg-error border border-red-agent/50
-                           text-red-agent hover:text-text-bright flex items-center justify-center transition-colors"
+                           text-red-agent hover:text-text-bright flex items-center justify-center
+                           transition-[background-color,color,border-color] duration-150 ease-out"
                 title="Stop agent"
               >
                 <Square size={16} />
@@ -497,8 +541,12 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
             <button
               onClick={handleSend}
               disabled={(!value.trim() && attachments.length === 0 && pastedBlocks.length === 0) || disabled}
-              className="p-2 rounded-lg bg-accent hover:bg-accent-bright disabled:opacity-40
-                         disabled:cursor-not-allowed text-white flex items-center justify-center transition-colors"
+              className="p-2 rounded-lg bg-accent hover:bg-accent-bright text-white
+                         flex items-center justify-center
+                         transition-[background-color,box-shadow,transform,opacity] duration-150 ease-out
+                         enabled:shadow-[0_0_0_3px_rgb(var(--primary-rgb)/0.14)]
+                         enabled:active:scale-90
+                         disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed"
               title="Send (Enter)"
             >
               <Send size={16} />
@@ -508,7 +556,11 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
 
         {/* Options dropup panel */}
         {showOptions && !disabled && (
-          <div ref={optionsPanelRef} className="absolute bottom-full left-0 right-0 mb-2 bg-surface-2 border border-border-bright rounded-xl shadow-2xl p-3 animate-fade-in z-[10]">
+          <div
+            ref={optionsPanelRef}
+            style={{ transformOrigin: 'bottom right' }}
+            className="motion-pop absolute bottom-full left-0 right-0 mb-2 bg-surface-2 border border-border-bright rounded-xl shadow-2xl p-3 z-[10]"
+          >
             <div className="grid grid-cols-2 gap-3">
               {/* Left column */}
               <div className="space-y-2">

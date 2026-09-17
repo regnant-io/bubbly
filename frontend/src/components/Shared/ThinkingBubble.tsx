@@ -7,28 +7,21 @@ interface ThinkingBubbleProps {
   streaming?: boolean;
 }
 
-const THINKING_VERBS = [
-  'Crystallizing',
-  'thinking',
-  'brainstorming',
-  'ideating',
-  'conceptualizing',
-  'theorizing',
-  'strategizing',
-  'contemplating',
-  'reflecting',
-  'pondering',
-  'meditating',
-  'analyzing',
-  'evaluating',
-  'envisioning',
-  'daydreaming',
-  'plotting',
-  'designing',
-  'innovating',
-  'synthesizing',
-  'organizing',
-];
+/**
+ * NO CAROUSEL OF SYNONYMS.
+ *
+ * This label used to cycle every nine seconds through twenty words —
+ * "Crystallizing", "ideating", "daydreaming", "plotting". It reads as
+ * personality for about the first two turns and as noise forever after, and it
+ * is actively misleading: the word changed, so something must have changed, and
+ * nothing had. A label that moves without meaning anything is a label people
+ * learn to stop reading, which costs you the moments it DOES carry news.
+ *
+ * One honest word, and a real number beside it once the wait is long enough for
+ * the number to be information. See components/Shared/AgentPresence.tsx, which
+ * makes the same argument about the same problem.
+ */
+const STILL_THINKING_MS = 12_000;
 
 /**
  * Reasoning block with dynamic loader and smooth streaming.
@@ -41,29 +34,18 @@ export const ThinkingBubble = React.memo(function ThinkingBubble({ content, stre
   // COLLAPSED BY DEFAULT - user must explicitly expand
   const [collapsed, setCollapsed] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [verbIndex, setVerbIndex] = useState(0);
-  const [showStillThinking, setShowStillThinking] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const startTimeRef = useRef(Date.now());
 
-  // Cycle through thinking verbs every 9 seconds while streaming
+  // One tick a second, only while reasoning is actually streaming. Enough for a
+  // seconds readout, and it stops dead the moment the block settles — a
+  // finished thought does not need a running clock.
   useEffect(() => {
     if (!streaming) return;
-    const interval = setInterval(() => {
-      setVerbIndex((i) => (i + 1) % THINKING_VERBS.length);
-      // After 10 seconds, show "still thinking"
-      if (Date.now() - startTimeRef.current > 10000) {
-        setShowStillThinking(true);
-      }
-    }, 9000);
-    return () => clearInterval(interval);
-  }, [streaming]);
-
-  // Reset timer when streaming starts
-  useEffect(() => {
-    if (streaming) {
-      startTimeRef.current = Date.now();
-      setShowStillThinking(false);
-    }
+    startTimeRef.current = Date.now();
+    setElapsedMs(0);
+    const id = setInterval(() => setElapsedMs(Date.now() - startTimeRef.current), 1000);
+    return () => clearInterval(id);
   }, [streaming]);
 
   // While streaming, keep the latest reasoning in view. The scroll is deferred
@@ -81,10 +63,10 @@ export const ThinkingBubble = React.memo(function ThinkingBubble({ content, stre
 
   if (!content && !streaming) return null;
 
-  const currentVerb = THINKING_VERBS[verbIndex];
+  const longThought = elapsedMs >= STILL_THINKING_MS;
 
   return (
-    <div className="mb-3 animate-fade-in">
+    <div className="mb-3 motion-rise">
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="flex items-center gap-2 text-xs text-text-dim hover:text-text-muted transition-all duration-200 mb-1 group"
@@ -92,23 +74,25 @@ export const ThinkingBubble = React.memo(function ThinkingBubble({ content, stre
         aria-label={collapsed ? 'Expand thinking' : 'Collapse thinking'}
       >
         {/* Brain icon with subtle animation */}
-        <Brain 
-          size={14} 
-          className={`shrink-0 transition-all duration-300 ${
-            streaming 
-              ? 'text-accent animate-pulse' 
+        <Brain
+          size={14}
+          className={`shrink-0 transition-colors duration-150 ${
+            streaming
+              ? 'text-accent motion-breathe'
               : 'text-text-dim/60 group-hover:text-text-dim'
-          }`} 
+          }`}
         />
         
-        {/* Dynamic loader with cycling verbs */}
-        <span className="tracking-tight font-normal transition-all duration-300">
+        <span className="tracking-tight font-normal">
           {streaming ? (
-            <span className="inline-flex items-baseline gap-1">
-              <span className="capitalize animate-fade-in">{currentVerb}</span>
-              <span className="animate-pulse">…</span>
-              {showStillThinking && (
-                <span className="text-text-dim/70 ml-1 animate-fade-in">(still thinking)</span>
+            <span className="inline-flex items-baseline gap-1.5">
+              {/* The sheen crosses the word itself, so the sentence carries the
+                  liveness — no second animation is needed beside it. */}
+              <span className="sheen-text">Thinking</span>
+              {longThought && (
+                <span className="motion-appear text-text-dim/70 tabular-nums">
+                  {Math.floor(elapsedMs / 1000)}s
+                </span>
               )}
             </span>
           ) : (

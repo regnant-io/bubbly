@@ -1,0 +1,254 @@
+/* ==========================================================================
+   MOTION SYSTEM
+   ==========================================================================
+
+   One vocabulary of durations and curves, so that everything in the app moves
+   like it belongs to the same object. Before this, every component picked its
+   own number — 150ms here, 300ms there, `ease-out` next to a cubic-bezier — and
+   the result reads as a collection of widgets rather than one surface.
+
+   THE RULES THIS ENCODES
+
+   1. Duration follows DISTANCE and IMPORTANCE, not taste. A colour change on
+      hover is 120ms because nothing moved. A panel arriving from off-screen is
+      260ms because it travelled. Anything over 320ms in an IDE is an animation
+      the user is waiting on, and waiting on your UI is the opposite of fast.
+
+   2. Things that ENTER decelerate (`--ease-out`): they arrive and settle.
+      Things that LEAVE accelerate (`--ease-in`): they get out of the way.
+      Things that move between two on-screen states use `--ease-standard`.
+      `--ease-spring` overshoots slightly and is reserved for direct
+      manipulation — a press, a toggle — where a little physics reads as
+      responsiveness rather than decoration.
+
+   3. Only `transform` and `opacity` in anything that repeats. They are
+      composited: an agent run that lasts four minutes with a loader on screen
+      must cost zero layout and zero paint.
+   ========================================================================== */
+
+:root {
+  /* Durations */
+  --dur-instant: 90ms;   /* colour/opacity only, no geometry */
+  --dur-fast: 140ms;     /* hover, focus, small state flips */
+  --dur-base: 200ms;     /* the default: disclosure, chips, tooltips */
+  --dur-slow: 280ms;     /* panels, modals, anything that travels */
+  --dur-deliberate: 420ms; /* a first paint resolving; used sparingly */
+
+  /* Curves */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+/* --------------------------------------------------------------------------
+   THEME SWITCHING
+
+   theme.css used to put `transition: background-color, border-color, color` on
+   the universal selector. That is a tax on every interaction in the app: each
+   hover fades in over 200ms instead of answering the pointer, and each theme
+   variable read is multiplied across every node in a large tree.
+
+   The transition is only ever WANTED for about a third of a second — while the
+   palette actually changes. So it is a class the theme hook puts on <html> for
+   the length of the swap and takes off again. Cost is paid exactly when the
+   effect is visible.
+   -------------------------------------------------------------------------- */
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition:
+    background-color var(--dur-slow) var(--ease-standard),
+    border-color var(--dur-slow) var(--ease-standard),
+    color var(--dur-slow) var(--ease-standard),
+    fill var(--dur-slow) var(--ease-standard),
+    box-shadow var(--dur-slow) var(--ease-standard) !important;
+  /* Never let the blanket rule animate geometry — a theme swap that reflows is
+     a theme swap that looks broken. */
+  transition-property: background-color, border-color, color, fill, box-shadow !important;
+}
+
+/* --------------------------------------------------------------------------
+   ENTRANCES
+
+   Named for what they are FOR, not for what they do, so a component picks the
+   one that matches its meaning and the meaning stays consistent app-wide.
+   -------------------------------------------------------------------------- */
+
+/* A new line of transcript. Rises a little, because it came from below. */
+@keyframes motion-rise {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.motion-rise { animation: motion-rise var(--dur-base) var(--ease-out) both; }
+
+/* A popover, menu or card claiming space it did not have. Scales from its own
+   corner — set `transform-origin` at the call site. */
+@keyframes motion-pop {
+  from { opacity: 0; transform: scale(0.965) translate3d(0, 4px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.motion-pop { animation: motion-pop var(--dur-base) var(--ease-out) both; }
+
+/* Something that was always there and is now being shown. No movement at all —
+   used where movement would fight with content already on screen. */
+@keyframes motion-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.motion-appear { animation: motion-appear var(--dur-fast) var(--ease-out) both; }
+
+/* Staggering. A list that arrives all at once reads as a flash; one that
+   arrives in reading order reads as the app assembling itself. Six steps is
+   enough — beyond that the last item is late enough to feel slow. */
+.motion-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.motion-stagger > *:nth-child(2) { animation-delay: 40ms; }
+.motion-stagger > *:nth-child(3) { animation-delay: 80ms; }
+.motion-stagger > *:nth-child(4) { animation-delay: 120ms; }
+.motion-stagger > *:nth-child(5) { animation-delay: 160ms; }
+.motion-stagger > *:nth-child(n+6) { animation-delay: 200ms; }
+
+/* --------------------------------------------------------------------------
+   THE SHEEN
+
+   The one loading texture in the app, used by every skeleton and by the
+   "working" affordances, so that "not ready yet" always looks the same.
+
+   It is a NARROW highlight travelling across a static surface, not a gradient
+   the width of the element. A full-width wipe makes a skeleton pulse between
+   two greys, which is loud, and the loudness scales with the number of
+   skeletons on screen — a shell of forty placeholders strobes. A narrow band
+   over a settled base is legible at one placeholder and calm at forty.
+
+   `background-position` on a fixed-size gradient is composited on its own
+   layer; this costs no layout and no paint regardless of how many run.
+   -------------------------------------------------------------------------- */
+@keyframes motion-sheen {
+  from { background-position: 120% 0; }
+  to   { background-position: -60% 0; }
+}
+
+.sheen {
+  position: relative;
+  background-color: var(--surface-2);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(var(--text-rgb) / 0.035) 42%,
+    rgb(var(--text-rgb) / 0.075) 50%,
+    rgb(var(--text-rgb) / 0.035) 58%,
+    transparent 100%
+  );
+  background-size: 180% 100%;
+  background-repeat: no-repeat;
+  animation: motion-sheen 1.7s var(--ease-standard) infinite;
+}
+
+/* The same highlight, applied to TEXT rather than to a block: used on the verb
+   of a running step ("Reading…") so the sentence itself carries the progress.
+   Clipped to the glyphs, so nothing around it moves. */
+.sheen-text {
+  background-image: linear-gradient(
+    90deg,
+    currentColor 0%,
+    currentColor 42%,
+    rgb(var(--primary-hover-rgb) / 1) 50%,
+    currentColor 58%,
+    currentColor 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: motion-sheen 2.2s var(--ease-standard) infinite;
+}
+
+/* --------------------------------------------------------------------------
+   THE COMPLETION TICK
+
+   A step finishing is the only genuinely GOOD news in a transcript, and it used
+   to arrive with no acknowledgement at all — the spinner simply became a tick
+   on the next frame. A single small settle marks the moment without turning
+   twenty finished steps into twenty animations: it plays once, on mount, and a
+   settled transcript is completely still.
+
+   Scale and opacity only, and it starts from 0.6 rather than 0, so the glyph
+   never leaves a hole in the line while it plays.
+   -------------------------------------------------------------------------- */
+@keyframes motion-tick {
+  0%   { opacity: 0; transform: scale(0.6); }
+  60%  { opacity: 1; transform: scale(1.18); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.tool-tick {
+  animation: motion-tick var(--dur-base) var(--ease-spring) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-tick { animation: motion-appear var(--dur-fast) linear both; }
+}
+
+/* --------------------------------------------------------------------------
+   PRESENCE
+
+   "The agent is alive and working" with no claim about progress. A breath, not
+   a spinner: a spinner implies a bounded operation, and an agent turn is not
+   bounded. Deliberately slow — anything faster reads as urgency.
+   -------------------------------------------------------------------------- */
+@keyframes motion-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(0.88); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+.motion-breathe { animation: motion-breathe 2.2s var(--ease-standard) infinite; }
+
+/* A ring that expands out of a dot and fades. One pass per breath, so it reads
+   as the same organism, not a second animation competing with the first. */
+@keyframes motion-halo {
+  0%   { opacity: 0.5; transform: scale(0.7); }
+  70%  { opacity: 0;   transform: scale(2.1); }
+  100% { opacity: 0;   transform: scale(2.1); }
+}
+.motion-halo { animation: motion-halo 2.2s var(--ease-out) infinite; }
+
+/* An indeterminate rail: a short segment crossing a fixed track. Honest where a
+   determinate bar would be a lie, because nothing here knows the duration. */
+@keyframes motion-rail {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+.motion-rail { animation: motion-rail 1.25s var(--ease-standard) infinite; }
+
+/* --------------------------------------------------------------------------
+   REDUCED MOTION
+
+   Not "freeze everything". A frozen loader during a four-minute agent run reads
+   as a hang, and the person who asked for less motion still needs to know the
+   app is alive. Travel and scale go; a slow opacity breath stays.
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .motion-rise,
+  .motion-pop,
+  .motion-appear {
+    animation: motion-appear var(--dur-fast) linear both !important;
+  }
+
+  .motion-stagger > * { animation-delay: 0ms !important; }
+
+  .sheen,
+  .sheen-text,
+  .motion-breathe,
+  .motion-halo,
+  .motion-rail {
+    animation: motion-appear-breathe 2.6s ease-in-out infinite !important;
+    background-image: none !important;
+    -webkit-text-fill-color: currentColor !important;
+    transform: none !important;
+  }
+
+  @keyframes motion-appear-breathe {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 1; }
+  }
+}

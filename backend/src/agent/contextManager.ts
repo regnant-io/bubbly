@@ -119,6 +119,62 @@ function compactMessage(message: Message, maxToolResultChars: number): Message {
   return { ...message, content: blocks };
 }
 
+/**
+ * Does the live history still carry image blocks?
+ *
+ * Asked when a request is rejected outright, because an attached frame is by
+ * far the most likely thing in a conversation for a provider to refuse: text
+ * gets truncated, images get rejected. See `stripHistoryImages`.
+ */
+export function historyHasImages(messages: Message[]): boolean {
+  return messages.some(
+    (m) =>
+      Array.isArray(m.content) &&
+      m.content.some((b) => b.type === 'tool_result' && !!b.images && b.images.length > 0),
+  );
+}
+
+/**
+ * Remove every image from the history, leaving the words behind.
+ *
+ * THE RECOVERY THIS EXISTS FOR
+ *
+ * A provider refuses an oversized or overlarge image with a 400. The frame is
+ * already in the message history when that happens, so the retry sends it
+ * again, and the retry after that, and so does every later turn in the thread —
+ * the failure is not transient, it is now a property of the conversation. That
+ * is the difference between "the model errored" and "this thread is dead".
+ *
+ * `fileToToolImage` is the belt (it refuses to attach a frame the provider
+ * would reject); this is the braces, for the cases the size check cannot see —
+ * a provider-specific limit, a model switched mid-thread to one without vision,
+ * a frame that was fine alone but not alongside three others.
+ *
+ * The tool result's TEXT is deliberately kept and annotated. Dropping the whole
+ * block would orphan its tool_use and make the history invalid; leaving it
+ * silent would let the model keep believing it had seen the picture.
+ */
+export function stripHistoryImages(messages: Message[]): { messages: Message[]; removed: number } {
+  let removed = 0;
+  const out = messages.map((m) => {
+    if (!Array.isArray(m.content)) return m;
+    if (!m.content.some((b) => b.type === 'tool_result' && !!b.images?.length)) return m;
+    const blocks: ContentBlock[] = m.content.map((b) => {
+      if (b.type !== 'tool_result' || !b.images?.length) return b;
+      removed += b.images.length;
+      const { images: _drop, ...rest } = b;
+      return {
+        ...rest,
+        content:
+          rest.content +
+          '\n(The attached screenshot could not be sent to this model and has been removed from the conversation. You have NOT seen it — do not describe it. Capture a smaller region or reduce the display size if you still need to look.)',
+      };
+    });
+    return { ...m, content: blocks };
+  });
+  return { messages: out, removed };
+}
+
 export interface CompactionResult {
   messages: Message[];
   compacted: boolean;

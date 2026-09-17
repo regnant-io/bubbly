@@ -38,30 +38,21 @@ export function BubbleLoader({ text = 'Thinking...', size = 'medium' }: BubbleLo
   };
 
   return (
-    <div className="bubble-loader-container flex flex-col items-center justify-center py-4 fade-enter">
+    <div className="bubble-loader-container flex flex-col items-center justify-center py-4 motion-appear">
       {/* Three bubbles with staggered pulse animation */}
-      <div className={`bubble-loader ${gapClasses[size]}`}>
-        <div 
-          className={`bubble ${sizeClasses[size]}`}
-          style={{ 
-            animationDelay: '0s',
-            backgroundColor: '#b58900' // Solarized brown/yellow
-          }}
-        />
-        <div 
-          className={`bubble ${sizeClasses[size]}`}
-          style={{ 
-            animationDelay: '0.2s',
-            backgroundColor: '#cb4b16' // Solarized orange
-          }}
-        />
-        <div 
-          className={`bubble ${sizeClasses[size]}`}
-          style={{ 
-            animationDelay: '0.4s',
-            backgroundColor: '#b58900' // Solarized yellow
-          }}
-        />
+      {/*
+        THE COLOURS COME FROM THE PALETTE, NOT FROM A HEX LITERAL.
+
+        These three dots were hard-coded to #b58900 / #cb4b16 / #b58900 —
+        Solarized yellow and orange — which meant that on eight of the nine
+        palettes this loader rendered in colours from a theme the user had not
+        chosen, and in light mode it sat at the wrong contrast entirely. The
+        accent and secondary tokens re-skin with everything else.
+      */}
+      <div className={`bubble-loader ${gapClasses[size]}`} aria-hidden="true">
+        <div className={`bubble ${sizeClasses[size]}`} style={{ animationDelay: '0s' }} />
+        <div className={`bubble ${sizeClasses[size]}`} style={{ animationDelay: '0.2s' }} />
+        <div className={`bubble ${sizeClasses[size]}`} style={{ animationDelay: '0.4s' }} />
       </div>
 
       {/* Configurable text below bubbles */}

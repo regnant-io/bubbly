@@ -33,11 +33,39 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 export function supportsVision(provider: Provider, model: string): boolean {
   if (provider === 'claude') return true;
   if (provider === 'gemini') return true;
-  if (provider === 'openrouter') return true;
   if (provider === 'ollama') {
     return /llava|bakllava|moondream|minicpm-?v|pixtral|vision|\bvl\b|-vl\b|qwen2?\.?5?-?vl|internvl|cogvlm|llama3\.2.*vision|mllama|gemma3|granite3\.\d+-vision|minimax|\bgpt-4o|\bo3\b|phi-?3\.5?-?vision|phi-?4.*vision/i.test(model);
   }
+  if (provider === 'openrouter') return openrouterLooksVision(model);
   return false;
+}
+
+/**
+ * Whether an OpenRouter slug names a multimodal model.
+ *
+ * This used to be a blanket `true`, which is wrong for most of OpenRouter's
+ * catalogue — plenty of the models it serves are text-only. The consequence was
+ * not cosmetic: the composer's "the active model has no vision support" warning
+ * never fired for OpenRouter, so a user could attach a screenshot, see no
+ * warning, and get a failed turn instead of an explanation.
+ *
+ * MUST STAY IN SYNC with backend/src/models/capabilities.ts, which is the copy
+ * that decides whether the agent's OWN screenshots are attached. The two
+ * answering differently is exactly how an image reaches a model that cannot
+ * read it — see that file for the rest of this bug's history.
+ */
+export function openrouterLooksVision(model: string): boolean {
+  const slug = model.toLowerCase();
+  // An explicit marker wins outright; then whole-catalogue-multimodal vendors;
+  // then the named text-only exceptions; then the unmarked vision families.
+  // Order matters — see the backend copy for the bug that proves it.
+  if (/vision|pixtral|internvl|kimi-vl|glm-4v|\bvl\b|-vl-|cogvlm/.test(slug)) return true;
+  if (/^anthropic\/claude-(?!2)/.test(slug)) return true;
+  if (/^google\/gemini/.test(slug)) return true;
+  if (/gpt-3\.5|gpt-4-0?314|gpt-4-32k/.test(slug)) return false;
+  return /gpt-4o|gpt-4\.1|gpt-4-turbo|chatgpt-4o|\bo[134]\b|o1-|o3-|o4-/.test(slug)
+    || /gemma-?3|llama-?3\.2-(11b|90b)|llama-?4|mllama/.test(slug)
+    || /grok-[34]/.test(slug);
 }
 
 /**

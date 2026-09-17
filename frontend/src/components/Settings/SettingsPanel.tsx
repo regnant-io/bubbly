@@ -32,7 +32,7 @@ const CATEGORIES: { id: CategoryId; label: string; icon: React.ReactNode }[] = [
 ];
 
 export function SettingsPanel() {
-  const { settings, setSettings, setWorkspacePath, setTheme } = useStore();
+  const { settings, setSettings, setWorkspacePath } = useStore();
   /**
    * Which category is open, honouring `#/settings/<category>`.
    *
@@ -195,7 +195,8 @@ export function SettingsPanel() {
       setSettings(updated);
       setForm(updated);
       if (updated.workspacePath) setWorkspacePath(updated.workspacePath);
-      if (updated.theme) setTheme(updated.theme);
+      // The theme is applied by setSettings above — it adopts a server value
+      // that has genuinely changed, which is exactly this case.
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {

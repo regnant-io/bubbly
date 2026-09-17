@@ -194,7 +194,7 @@ import { getAllSettings } from '../db/index';
 import { StreamBuffer } from '../models/streamBuffer';
 import { getIndex, buildRepoMap } from './intelligence/codeIntelligence';
 import { runValidation, formatIssuesForRepair } from './intelligence/validator';
-import { compactHistory, sanitizeHistory, estimateTotalTokens } from './contextManager';
+import { compactHistory, sanitizeHistory, estimateTotalTokens, historyHasImages, stripHistoryImages } from './contextManager';
 import { getContextLimit, usableInputTokens, estimateTextTokens } from './contextLimits';
 import { resolveNumCtx } from '../models/ollama';
 import { getOpenRouterModelContext } from '../models/openrouter';
@@ -1573,6 +1573,17 @@ User request: ` + userMessage;
       let response: ModelResponse;
       let modelRetryCount = 0;
       let rateLimited = false;
+      /** The provider refused the request itself; retrying cannot help. */
+      let badRequest = false;
+      /**
+       * Have we already tried the one recovery a refusal has?
+       *
+       * Scoped to this iteration on purpose. Once stripped there are no images
+       * left, so a second refusal in the same iteration falls straight through
+       * to the honest error — but a screenshot taken several steps later gets
+       * the same chance at recovery rather than inheriting an old verdict.
+       */
+      let strippedImagesForRecovery = false;
       const MAX_MODEL_RETRIES = 3;
       
       while (modelRetryCount <= MAX_MODEL_RETRIES) {
@@ -1702,6 +1713,74 @@ User request: ` + userMessage;
             break;
           }
 
+          /*
+           * A REQUEST THE PROVIDER REFUSED OUTRIGHT (400).
+           *
+           * A 400 is deterministic. The same bytes will be refused the same way
+           * in one second and in four, so the exponential-backoff loop below is
+           * pure delay — three retries, seven seconds, and the identical error.
+           * Worse, the payload that caused it lives in the conversation, so
+           * "continue to the next iteration" carries it forward and every
+           * remaining turn fails too. That is what turned one bad screenshot
+           * into a thread that could never be used again.
+           *
+           * There is exactly one recovery worth attempting, and it is worth
+           * attempting first: if the history still carries images, drop them and
+           * try once more. An oversized or over-large frame is overwhelmingly
+           * the most common cause of a 400 here, the pictures have already
+           * served their purpose, and removing them leaves a valid conversation
+           * (the tool results keep their text — see stripHistoryImages).
+           */
+          const httpStatus = (modelError as { status?: number; httpStatus?: number })?.status
+            ?? (modelError as { httpStatus?: number })?.httpStatus;
+          const messageText = modelError instanceof Error ? modelError.message : String(modelError);
+          const isBadRequest = httpStatus === 400 || /invalid_request_error/i.test(messageText);
+          if (isBadRequest) {
+            if (!strippedImagesForRecovery && historyHasImages(messages)) {
+              const stripped = stripHistoryImages(messages);
+              messages.length = 0;
+              messages.push(...stripped.messages);
+              strippedImagesForRecovery = true;
+              logger.warn('Request refused; dropping images from history and retrying', {
+                sessionId, iteration, removed: stripped.removed, error: messageText,
+              });
+              params.onEvent({
+                type: 'status',
+                content: `The model refused the request with an attached screenshot. Dropping ${stripped.removed === 1 ? 'it' : `${stripped.removed} of them`} and retrying.`,
+              });
+              continue;
+            }
+
+            /*
+             * Say WHAT was refused, not just that something was.
+             *
+             * The generic error path turns a 400 into "the model API failed",
+             * which is the least useful sentence available: it looks identical
+             * to a network blip, so the user's instinct is to retry, and
+             * retrying a 400 fails identically forever. The provider's own
+             * message names the offending part of the request (an image, a
+             * token budget, an unsupported parameter), so it is passed through
+             * verbatim, and the suggestions point at the two things that
+             * actually resolve it.
+             */
+            logger.error('Request refused by the provider; not retrying', { sessionId, iteration, error: messageText });
+            params.onEvent({
+              type: 'error',
+              message:
+                `The model rejected the request itself, so retrying cannot help: ${messageText}` +
+                (strippedImagesForRecovery
+                  ? ' (Screenshots were already removed from the conversation and it was still refused.)'
+                  : ''),
+              recoverable: true,
+              suggestions: [
+                'Start a new thread — the current one contains something this model will not accept',
+                'Switch to a different model or provider in Settings',
+              ],
+            });
+            badRequest = true;
+            break;
+          }
+
           modelRetryCount++;
 
           logger.error('Model API call failed', {
@@ -1763,6 +1842,15 @@ User request: ` + userMessage;
         }
       }
       
+      // Refused outright: end the run. The error event has already gone out, and
+      // "continuing" would just re-send a payload the provider will not accept.
+      if (badRequest) {
+        updateSessionStatus(sessionId, 'idle');
+        activeSessions.delete(sessionId);
+        params.onEvent({ type: 'done', sessionId });
+        return;
+      }
+
       // Rate limited: end the run cleanly. We've already emitted an error event
       // with guidance; continuing would just fire more quota-burning requests.
       if (rateLimited) {

@@ -28,7 +28,7 @@ function parseHash(): { panel?: string; threadId?: string } {
 }
 
 export default function App() {
-  const { setSettings, setWorkspacePath, setTheme, setActivePanel } = useStore();
+  const { setSettings, setWorkspacePath, setActivePanel } = useStore();
   const bootState = useStore((s) => s.bootState);
   const onboardingComplete = useStore((s) => s.onboardingComplete);
 
@@ -39,6 +39,10 @@ export default function App() {
   const openThreadById = async (threadId: string) => {
     const store = useStore.getState();
     if (store.currentSessionId === threadId && store.messages.length > 0) return;
+    // Say so BEFORE the fetch: the gap between clicking a thread and its history
+    // arriving is exactly the window in which the wrong screen would otherwise
+    // show, and it is longest for the long conversations that most need this.
+    store.setThreadLoading(true);
     try {
       const { messages, plan, sessionChanges, error } = await loadThread(threadId);
       if (error) throw new Error(error);
@@ -83,6 +87,8 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Could not open thread from URL:', err);
+    } finally {
+      useStore.getState().setThreadLoading(false);
     }
   };
 
@@ -136,9 +142,11 @@ export default function App() {
 
     fetchSettings()
       .then((s: Settings) => {
+        // setSettings adopts the server's theme itself, and only when the
+        // server's value has actually changed — calling setTheme here as well
+        // would PUT the value straight back and defeat that check.
         setSettings(s);
         if (s.workspacePath) setWorkspacePath(s.workspacePath);
-        if (s.theme) setTheme(s.theme);
         // Don't show onboarding to users who already have a working setup
         // (provider configured + workspace chosen) but predate the flag.
         const store = useStore.getState();
@@ -168,7 +176,7 @@ export default function App() {
     const t = setTimeout(() => useStore.getState().setBootState('ready'), 8000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setSettings, setWorkspacePath, setTheme]);
+  }, [setSettings, setWorkspacePath]);
 
   if (bootState === 'loading') {
     return <BootScreen />;

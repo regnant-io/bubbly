@@ -4,7 +4,7 @@
 /**
  * Dependency-free app-icon generator for Bubbly Desktop.
  *
- * Renders the Bubbly bubble mark (2x2 grid of 4 orange bubbles on a dark rounded square) and writes:
+ * Renders the bubble bloom on an obsidian rounded square and writes:
  *   - desktop/assets/icon.png  (256x256 PNG — window/taskbar icon, Linux)
  *   - desktop/assets/icon.ico  (MULTI-RESOLUTION ICO used by electron-builder)
  *
@@ -103,54 +103,34 @@ function lerp(a, b, t) {
  * design space. `finalSize` is the size this will end up at AFTER downsampling
  * and drives how much fine detail is worth drawing.
  */
-function drawIcon(px, finalSize) {
+// Rasterize the same bubble bloom used by BubblyMark and icon.svg.
+function drawIcon(px) {
   const c = makeCanvas(px, px);
-  const s = px / 256; // design-space -> canvas scale
-
-  // No background - transparent canvas (already initialized with alpha=0)
-
-  // Orange gradient for bubbles: center #ffb366 -> edge #ff7518
-  const innerOrange = [0xff, 0xb3, 0x66];
-  const outerOrange = [0xff, 0x75, 0x18];
-
-  // 2x2 grid of 4 orange bubbles
-  const positions = [
-    { cx: 88, cy: 88 },   // top left
-    { cx: 168, cy: 88 },  // top right
-    { cx: 88, cy: 168 },  // bottom left
-    { cx: 168, cy: 168 }, // bottom right
-  ];
-
-  const bubbleR = 36 * s;
-  const highlightR = 12 * s;
-
-  for (const pos of positions) {
-    const bubbleCx = pos.cx * s;
-    const bubbleCy = pos.cy * s;
-    
-    // gradient focus offset toward top-left
-    const focusX = bubbleCx - bubbleR * 0.25;
-    const focusY = bubbleCy - bubbleR * 0.3;
-    
-    // Draw bubble with radial gradient
-    filledCircle(c, bubbleCx, bubbleCy, bubbleR, (x, y) => {
-      const t = Math.min(1, Math.hypot(x - focusX, y - focusY) / (bubbleR * 1.1));
-      return [
-        Math.round(lerp(innerOrange[0], outerOrange[0], t)),
-        Math.round(lerp(innerOrange[1], outerOrange[1], t)),
-        Math.round(lerp(innerOrange[2], outerOrange[2], t)),
-        255,
-      ];
-    });
-
-    // White highlight (only at larger sizes for clarity)
-    if (finalSize >= 24) {
-      const highlightCx = bubbleCx - bubbleR * 0.3;
-      const highlightCy = bubbleCy - bubbleR * 0.3;
-      filledCircle(c, highlightCx, highlightCy, highlightR, () => [255, 255, 255, 102]);
-    }
+  roundedRect(c, [20,22,25,255], px / 4);
+  const scale = px / 48;
+  for (const [x,y,r,a] of [[18,18,12,.85],[31,21,11,.65],[24,32,11,.95],[38,8,3,1]]) {
+    filledCircle(c, x*scale, y*scale, r*scale, () => [167,216,187,255*a]);
   }
-
+  // Four cubic inward arcs form the negative-space sparkle.
+  const points = [];
+  for (const [p0,p1,p2,p3] of [
+    [[24,16],[24,21],[21,24],[16,24]],
+    [[16,24],[21,24],[24,27],[24,32]],
+    [[24,32],[24,27],[27,24],[32,24]],
+    [[32,24],[27,24],[24,21],[24,16]],
+  ]) for (let n=0;n<24;n++) {
+    const t=n/24,u=1-t;
+    points.push([0,1].map(k=>u*u*u*p0[k]+3*u*u*t*p1[k]+3*u*t*t*p2[k]+t*t*t*p3[k]));
+  }
+  for (let y=0;y<px;y++) for(let x=0;x<px;x++) {
+    const sx=(x+.5)/scale,sy=(y+.5)/scale;
+    let hit=false;
+    for(let i=0,j=points.length-1;i<points.length;j=i++) {
+      const [xi,yi]=points[i],[xj,yj]=points[j];
+      if ((yi>sy)!==(yj>sy) && sx<(xj-xi)*(sy-yi)/(yj-yi)+xi) hit=!hit;
+    }
+    if(hit) setPx(c,x,y,20,22,25,255);
+  }
   return c;
 }
 

@@ -34,17 +34,17 @@ const SUGGESTED_MODES: Array<{ label: string; description: string; icon: React.R
   {
     label: 'Code Review',
     description: 'Deep analysis of code quality, patterns, and potential issues',
-    icon: <Code2 size={13} className="text-blue-400" />,
+    icon: <Code2 size={13} className="text-text-dim" />,
   },
   {
     label: 'Debug Session',
     description: 'Systematic bug investigation with hypothesis testing',
-    icon: <Sparkles size={13} className="text-purple-400" />,
+    icon: <Sparkles size={13} className="text-text-dim" />,
   },
   {
     label: 'Pairing',
     description: 'Collaborative development with shared decision-making',
-    icon: <MessageSquare size={13} className="text-green-400" />,
+    icon: <MessageSquare size={13} className="text-text-dim" />,
   },
 ];
 

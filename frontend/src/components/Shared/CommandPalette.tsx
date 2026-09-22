@@ -4,6 +4,7 @@ import { findFiles, fetchFileContent } from '../../hooks/useApi';
 import {
   MessageSquare, Folder, ClipboardList, Clock, Settings, LayoutGrid,
   HardDrive, Terminal, Plus, Command, Sun, Moon, Monitor, FileCode, PanelLeft,
+  Search,
 } from './icons';
 
 interface CommandItem {
@@ -167,15 +168,15 @@ export function CommandPalette({ onThreadSelect }: CommandPaletteProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] bg-black/40 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[14vh] bg-black/30 backdrop-blur-[2px] motion-appear"
       onClick={() => setCommandPaletteOpen(false)}
     >
       <div
-        className="w-full max-w-lg mx-4 rounded-2xl border border-border-bright bg-surface-1 shadow-2xl overflow-hidden"
+        className="w-full max-w-xl mx-4 rounded-xl border border-border bg-surface-1 shadow-2xl overflow-hidden motion-pop"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-          <Command size={16} className="text-accent-bright" />
+          <Search size={16} className="text-text-dim" />
           <input
             ref={inputRef}
             value={query}
@@ -186,7 +187,7 @@ export function CommandPalette({ onThreadSelect }: CommandPaletteProps) {
               else if (e.key === 'Enter') { e.preventDefault(); results[selected]?.run(); }
             }}
             placeholder="Search files & commands…"
-            className="flex-1 bg-transparent outline-none text-sm text-text placeholder:text-text-dim"
+            className="palette-input flex-1 bg-transparent outline-none text-sm text-text placeholder:text-text-dim"
           />
           <kbd className="text-[10px] text-text-dim border border-border rounded px-1.5 py-0.5">ESC</kbd>
         </div>

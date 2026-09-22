@@ -62,38 +62,21 @@ export interface Palette {
   dark: PaletteMode;
 }
 
-/**
- * SLATE — the default.
- *
- * Built from the cool slate/lavender family (#464655 #94958B #B7B6C1 #D5CFE1
- * #EDDFEF). Chosen as the default because it is the only one of these families
- * that is equally convincing in both modes: the light mode reads as paper with a
- * faint lilac cast rather than as grey, and the dark mode keeps the same hue
- * relationship instead of becoming a different theme wearing the same name.
- * Low chroma everywhere except the accent, which is what makes a long session
- * comfortable.
- */
+/** Obsidian is the default; the persisted 'slate' ID keeps existing preferences compatible. */
 const slate: Palette = {
-  id: 'slate',
-  name: 'Slate',
-  description: 'Cool lavender-grey. Low contrast noise, one confident accent — built for long sessions.',
+  id: 'slate', name: 'Obsidian',
+  description: 'Precision neutrals with a quiet mineral accent. Built for focused work.',
   light: {
-    page: '#f2f0f5', card: '#fdfcfe', recessed: '#eae7f0', hover: '#e3dfec',
-    border: '#c9c5d6',
-    text: '#26242e', textMuted: '#5c5869', textDim: '#8d8899', textBright: '#141219',
-    primary: '#6d5f9e', primaryHover: '#5b4e89',
-    secondary: '#a06a8c', secondaryHover: '#8b5878',
-    success: '#4a7c59', warning: '#a67c2e', error: '#b3453c', info: '#4a6fa5',
-    shadowRgb: '38 36 46',
+    page: '#f7f8fa', card: '#ffffff', recessed: '#eef0f3', hover: '#e6e9ee', border: '#d5d9e0',
+    text: '#20242c', textMuted: '#566170', textDim: '#687383', textBright: '#11151c',
+    primary: '#426753', primaryHover: '#345440', secondary: '#587087', secondaryHover: '#40576e',
+    success: '#347453', warning: '#96681e', error: '#bc424c', info: '#426ea6', shadowRgb: '20 26 36',
   },
   dark: {
-    page: '#16151b', card: '#1f1e26', recessed: '#262533', hover: '#2e2c3a',
-    border: '#3a384a',
-    text: '#e6e3ee', textMuted: '#a9a4bb', textDim: '#6f6b80', textBright: '#ffffff',
-    primary: '#a89bd8', primaryHover: '#bcb1e4',
-    secondary: '#d19ab8', secondaryHover: '#e0b0c9',
-    success: '#7fb08c', warning: '#d9b165', error: '#e0796f', info: '#7fa3d9',
-    shadowRgb: '0 0 0',
+    page: '#141619', card: '#1b1e22', recessed: '#202429', hover: '#292e35', border: '#343a43',
+    text: '#e7e9ed', textMuted: '#a8b0bc', textDim: '#8893a2', textBright: '#fafbfc',
+    primary: '#87ad96', primaryHover: '#a3c5b0', secondary: '#91a6bd', secondaryHover: '#afc0d3',
+    success: '#87bd9b', warning: '#d5b173', error: '#e38b91', info: '#8faed4', shadowRgb: '0 0 0',
   },
 };
 

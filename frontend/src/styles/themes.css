@@ -12,196 +12,196 @@
  * switching to dark never silently changes which theme you are using.
  */
 
-/* ===== Slate — Cool lavender-grey. Low contrast noise, one confident accent — built for long sessions. ===== */
+/* ===== Obsidian — Precision neutrals with a quiet mineral accent. Built for focused work. ===== */
 :root,
   :root[data-palette="slate"] {
-    --bg-page: #f2f0f5;
-    --bg-card: #fdfcfe;
-    --bg-card-hover: #e3dfec;
-    --border-color: rgba(201, 197, 214, 0.5);
-    --border-strong: rgba(201, 197, 214, 0.85);
-    --shadow-card: 0 1px 2px rgba(38, 36, 46, 0.05), 0 4px 14px rgba(38, 36, 46, 0.08);
-    --shadow-card-raised: 0 4px 12px rgba(38, 36, 46, 0.09), 0 12px 32px rgba(38, 36, 46, 0.13);
-    --text-primary: #26242e;
-    --text-secondary: #5c5869;
-    --text-tertiary: #8d8899;
+    --bg-page: #f7f8fa;
+    --bg-card: #ffffff;
+    --bg-card-hover: #e6e9ee;
+    --border-color: rgba(213, 217, 224, 0.5);
+    --border-strong: rgba(213, 217, 224, 0.85);
+    --shadow-card: 0 1px 2px rgba(20, 26, 36, 0.05), 0 4px 14px rgba(20, 26, 36, 0.08);
+    --shadow-card-raised: 0 4px 12px rgba(20, 26, 36, 0.09), 0 12px 32px rgba(20, 26, 36, 0.13);
+    --text-primary: #20242c;
+    --text-secondary: #566170;
+    --text-tertiary: #687383;
 
-    --surface-0: #f2f0f5;
-    --surface-1: #fdfcfe;
-    --surface-2: #eae7f0;
-    --surface-3: #e3dfec;
-    --surface-4: #e3dfec;
+    --surface-0: #f7f8fa;
+    --surface-1: #ffffff;
+    --surface-2: #eef0f3;
+    --surface-3: #e6e9ee;
+    --surface-4: #e6e9ee;
 
     --border: var(--border-color);
     --border-bright: var(--border-strong);
 
-    --text: #26242e;
-    --text-muted: #5c5869;
-    --text-dim: #8d8899;
-    --text-bright: #141219;
+    --text: #20242c;
+    --text-muted: #566170;
+    --text-dim: #687383;
+    --text-bright: #11151c;
 
-    --primary: #6d5f9e;
-    --primary-hover: #5b4e89;
-    --primary-light: rgba(109, 95, 158, 0.12);
-    --secondary: #a06a8c;
-    --secondary-hover: #8b5878;
-    --secondary-light: rgba(160, 106, 140, 0.1);
+    --primary: #426753;
+    --primary-hover: #345440;
+    --primary-light: rgba(66, 103, 83, 0.12);
+    --secondary: #587087;
+    --secondary-hover: #40576e;
+    --secondary-light: rgba(88, 112, 135, 0.1);
 
-    --success: #4a7c59;
-    --success-bg: rgba(74, 124, 89, 0.13);
-    --warning: #a67c2e;
-    --warning-bg: rgba(166, 124, 46, 0.13);
-    --error: #b3453c;
-    --error-bg: rgba(179, 69, 60, 0.13);
-    --info: #4a6fa5;
-    --info-bg: rgba(74, 111, 165, 0.13);
+    --success: #347453;
+    --success-bg: rgba(52, 116, 83, 0.13);
+    --warning: #96681e;
+    --warning-bg: rgba(150, 104, 30, 0.13);
+    --error: #bc424c;
+    --error-bg: rgba(188, 66, 76, 0.13);
+    --info: #426ea6;
+    --info-bg: rgba(66, 110, 166, 0.13);
 
     /* Channel mirrors — derived, never hand-written. See the header. */
-    --primary-rgb: 109 95 158;
-    --primary-hover-rgb: 91 78 137;
-    --secondary-rgb: 160 106 140;
-    --success-rgb: 74 124 89;
-    --warning-rgb: 166 124 46;
-    --error-rgb: 179 69 60;
-    --info-rgb: 74 111 165;
-    --text-rgb: 38 36 46;
-    --text-muted-rgb: 92 88 105;
-    --text-dim-rgb: 141 136 153;
-    --text-bright-rgb: 20 18 25;
-    --surface-0-rgb: 242 240 245;
-    --surface-1-rgb: 253 252 254;
-    --surface-2-rgb: 234 231 240;
-    --surface-3-rgb: 227 223 236;
-    --surface-4-rgb: 227 223 236;
-    --border-rgb: 201 197 214;
+    --primary-rgb: 66 103 83;
+    --primary-hover-rgb: 52 84 64;
+    --secondary-rgb: 88 112 135;
+    --success-rgb: 52 116 83;
+    --warning-rgb: 150 104 30;
+    --error-rgb: 188 66 76;
+    --info-rgb: 66 110 166;
+    --text-rgb: 32 36 44;
+    --text-muted-rgb: 86 97 112;
+    --text-dim-rgb: 104 115 131;
+    --text-bright-rgb: 17 21 28;
+    --surface-0-rgb: 247 248 250;
+    --surface-1-rgb: 255 255 255;
+    --surface-2-rgb: 238 240 243;
+    --surface-3-rgb: 230 233 238;
+    --surface-4-rgb: 230 233 238;
+    --border-rgb: 213 217 224;
 
     /* The agent-status colours components reference by name. */
-    --green-agent: #4a7c59;
-    --red-agent: #b3453c;
-    --amber-agent: #a67c2e;
-    --blue-agent: #4a6fa5;
-    --cyan-agent: #4a6fa5;
-    --violet-agent: #a06a8c;
-    --orange-agent: #a06a8c;
-    --brown-agent: #5c5869;
-    --accent: #6d5f9e;
-    --accent-bright: #5b4e89;
-    --accent-rgb: 109 95 158;
-    --accent-bright-rgb: 91 78 137;
-    --green-agent-rgb: 74 124 89;
-    --red-agent-rgb: 179 69 60;
-    --amber-agent-rgb: 166 124 46;
-    --blue-agent-rgb: 74 111 165;
-    --cyan-agent-rgb: 74 111 165;
-    --violet-agent-rgb: 160 106 140;
-    --orange-agent-rgb: 160 106 140;
-    --brown-agent-rgb: 92 88 105;
+    --green-agent: #347453;
+    --red-agent: #bc424c;
+    --amber-agent: #96681e;
+    --blue-agent: #426ea6;
+    --cyan-agent: #426ea6;
+    --violet-agent: #587087;
+    --orange-agent: #587087;
+    --brown-agent: #566170;
+    --accent: #426753;
+    --accent-bright: #345440;
+    --accent-rgb: 66 103 83;
+    --accent-bright-rgb: 52 84 64;
+    --green-agent-rgb: 52 116 83;
+    --red-agent-rgb: 188 66 76;
+    --amber-agent-rgb: 150 104 30;
+    --blue-agent-rgb: 66 110 166;
+    --cyan-agent-rgb: 66 110 166;
+    --violet-agent-rgb: 88 112 135;
+    --orange-agent-rgb: 88 112 135;
+    --brown-agent-rgb: 86 97 112;
 
     /* Syntax highlighting, derived so every theme is internally coherent. */
-    --syntax-keyword: #6d5f9e;
-    --syntax-string: #4a7c59;
-    --syntax-number: #a06a8c;
-    --syntax-comment: #8d8899;
-    --syntax-function: #4a6fa5;
-    --syntax-variable: #26242e;
-    --syntax-operator: #a67c2e;
-    --syntax-constant: #8b5878;
+    --syntax-keyword: #426753;
+    --syntax-string: #347453;
+    --syntax-number: #587087;
+    --syntax-comment: #687383;
+    --syntax-function: #426ea6;
+    --syntax-variable: #20242c;
+    --syntax-operator: #96681e;
+    --syntax-constant: #40576e;
 }
 
 :root[data-theme="dark"],
   html.dark,
   :root[data-palette="slate"][data-theme="dark"] {
-    --bg-page: #16151b;
-    --bg-card: #1f1e26;
-    --bg-card-hover: #2e2c3a;
-    --border-color: rgba(58, 56, 74, 0.14);
-    --border-strong: rgba(58, 56, 74, 0.26);
+    --bg-page: #141619;
+    --bg-card: #1b1e22;
+    --bg-card-hover: #292e35;
+    --border-color: rgba(52, 58, 67, 0.14);
+    --border-strong: rgba(52, 58, 67, 0.26);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.5);
     --shadow-card-raised: 0 6px 18px rgba(0, 0, 0, 0.55), 0 16px 40px rgba(0, 0, 0, 0.6);
-    --text-primary: #e6e3ee;
-    --text-secondary: #a9a4bb;
-    --text-tertiary: #6f6b80;
+    --text-primary: #e7e9ed;
+    --text-secondary: #a8b0bc;
+    --text-tertiary: #8893a2;
 
-    --surface-0: #16151b;
-    --surface-1: #1f1e26;
-    --surface-2: #262533;
-    --surface-3: #2e2c3a;
-    --surface-4: #2e2c3a;
+    --surface-0: #141619;
+    --surface-1: #1b1e22;
+    --surface-2: #202429;
+    --surface-3: #292e35;
+    --surface-4: #292e35;
 
     --border: var(--border-color);
     --border-bright: var(--border-strong);
 
-    --text: #e6e3ee;
-    --text-muted: #a9a4bb;
-    --text-dim: #6f6b80;
-    --text-bright: #ffffff;
+    --text: #e7e9ed;
+    --text-muted: #a8b0bc;
+    --text-dim: #8893a2;
+    --text-bright: #fafbfc;
 
-    --primary: #a89bd8;
-    --primary-hover: #bcb1e4;
-    --primary-light: rgba(168, 155, 216, 0.15);
-    --secondary: #d19ab8;
-    --secondary-hover: #e0b0c9;
-    --secondary-light: rgba(209, 154, 184, 0.15);
+    --primary: #87ad96;
+    --primary-hover: #a3c5b0;
+    --primary-light: rgba(135, 173, 150, 0.15);
+    --secondary: #91a6bd;
+    --secondary-hover: #afc0d3;
+    --secondary-light: rgba(145, 166, 189, 0.15);
 
-    --success: #7fb08c;
-    --success-bg: rgba(127, 176, 140, 0.13);
-    --warning: #d9b165;
-    --warning-bg: rgba(217, 177, 101, 0.13);
-    --error: #e0796f;
-    --error-bg: rgba(224, 121, 111, 0.13);
-    --info: #7fa3d9;
-    --info-bg: rgba(127, 163, 217, 0.13);
+    --success: #87bd9b;
+    --success-bg: rgba(135, 189, 155, 0.13);
+    --warning: #d5b173;
+    --warning-bg: rgba(213, 177, 115, 0.13);
+    --error: #e38b91;
+    --error-bg: rgba(227, 139, 145, 0.13);
+    --info: #8faed4;
+    --info-bg: rgba(143, 174, 212, 0.13);
 
     /* Channel mirrors — derived, never hand-written. See the header. */
-    --primary-rgb: 168 155 216;
-    --primary-hover-rgb: 188 177 228;
-    --secondary-rgb: 209 154 184;
-    --success-rgb: 127 176 140;
-    --warning-rgb: 217 177 101;
-    --error-rgb: 224 121 111;
-    --info-rgb: 127 163 217;
-    --text-rgb: 230 227 238;
-    --text-muted-rgb: 169 164 187;
-    --text-dim-rgb: 111 107 128;
-    --text-bright-rgb: 255 255 255;
-    --surface-0-rgb: 22 21 27;
-    --surface-1-rgb: 31 30 38;
-    --surface-2-rgb: 38 37 51;
-    --surface-3-rgb: 46 44 58;
-    --surface-4-rgb: 46 44 58;
-    --border-rgb: 58 56 74;
+    --primary-rgb: 135 173 150;
+    --primary-hover-rgb: 163 197 176;
+    --secondary-rgb: 145 166 189;
+    --success-rgb: 135 189 155;
+    --warning-rgb: 213 177 115;
+    --error-rgb: 227 139 145;
+    --info-rgb: 143 174 212;
+    --text-rgb: 231 233 237;
+    --text-muted-rgb: 168 176 188;
+    --text-dim-rgb: 136 147 162;
+    --text-bright-rgb: 250 251 252;
+    --surface-0-rgb: 20 22 25;
+    --surface-1-rgb: 27 30 34;
+    --surface-2-rgb: 32 36 41;
+    --surface-3-rgb: 41 46 53;
+    --surface-4-rgb: 41 46 53;
+    --border-rgb: 52 58 67;
 
     /* The agent-status colours components reference by name. */
-    --green-agent: #7fb08c;
-    --red-agent: #e0796f;
-    --amber-agent: #d9b165;
-    --blue-agent: #7fa3d9;
-    --cyan-agent: #7fa3d9;
-    --violet-agent: #d19ab8;
-    --orange-agent: #d19ab8;
-    --brown-agent: #a9a4bb;
-    --accent: #a89bd8;
-    --accent-bright: #bcb1e4;
-    --accent-rgb: 168 155 216;
-    --accent-bright-rgb: 188 177 228;
-    --green-agent-rgb: 127 176 140;
-    --red-agent-rgb: 224 121 111;
-    --amber-agent-rgb: 217 177 101;
-    --blue-agent-rgb: 127 163 217;
-    --cyan-agent-rgb: 127 163 217;
-    --violet-agent-rgb: 209 154 184;
-    --orange-agent-rgb: 209 154 184;
-    --brown-agent-rgb: 169 164 187;
+    --green-agent: #87bd9b;
+    --red-agent: #e38b91;
+    --amber-agent: #d5b173;
+    --blue-agent: #8faed4;
+    --cyan-agent: #8faed4;
+    --violet-agent: #91a6bd;
+    --orange-agent: #91a6bd;
+    --brown-agent: #a8b0bc;
+    --accent: #87ad96;
+    --accent-bright: #a3c5b0;
+    --accent-rgb: 135 173 150;
+    --accent-bright-rgb: 163 197 176;
+    --green-agent-rgb: 135 189 155;
+    --red-agent-rgb: 227 139 145;
+    --amber-agent-rgb: 213 177 115;
+    --blue-agent-rgb: 143 174 212;
+    --cyan-agent-rgb: 143 174 212;
+    --violet-agent-rgb: 145 166 189;
+    --orange-agent-rgb: 145 166 189;
+    --brown-agent-rgb: 168 176 188;
 
     /* Syntax highlighting, derived so every theme is internally coherent. */
-    --syntax-keyword: #a89bd8;
-    --syntax-string: #7fb08c;
-    --syntax-number: #d19ab8;
-    --syntax-comment: #6f6b80;
-    --syntax-function: #7fa3d9;
-    --syntax-variable: #e6e3ee;
-    --syntax-operator: #d9b165;
-    --syntax-constant: #e0b0c9;
+    --syntax-keyword: #87ad96;
+    --syntax-string: #87bd9b;
+    --syntax-number: #91a6bd;
+    --syntax-comment: #8893a2;
+    --syntax-function: #8faed4;
+    --syntax-variable: #e7e9ed;
+    --syntax-operator: #d5b173;
+    --syntax-constant: #afc0d3;
 }
 
 /* ===== Paper — Near-white and quiet, with one vivid green accent. The editor gets out of the way. ===== */

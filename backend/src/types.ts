@@ -112,6 +112,9 @@ export interface ThreadMetadata {
   status: Session['status'];
   threadName?: string;
   parentSessionId?: string;
+  workspacePath?: string;
+  /** Live, from the orchestrator — the stored `status` survives a crash and lies. */
+  running?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -310,6 +313,7 @@ export interface WSEventEnvelope {
 
 export type WSServerEvent =
   | { type: 'session_created'; sessionId: string }
+  | { type: 'thread_title'; sessionId: string; title: string }
   /** A run has BEGUN. Emitted for every start, including the automatic wake-up
    *  after a detached watcher settles — which is how the client knows to put the
    *  Stop button back. Before this existed, a woken thread streamed output with

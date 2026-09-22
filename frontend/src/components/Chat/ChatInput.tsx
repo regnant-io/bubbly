@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Square, Paperclip, X, FileText, ChevronUp } from '../Shared/icons';
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { Square, Paperclip, X, FileText, ArrowUp } from '../Shared/icons';
 import { ModelSelector } from './ModelSelector';
 import { SourcePicker } from './SourcePicker';
 import { GitDiffCounter } from './GitDiffCounter';
@@ -30,6 +30,10 @@ interface PastedBlock {
 
 /** Pastes longer than this become a collapsed "pasted content" chip. */
 const PASTE_CHIP_THRESHOLD = 1200;
+
+/** Textarea height bounds, padding included: one line up to about ten. */
+const TEXTAREA_MIN = 38;
+const TEXTAREA_MAX = 250;
 
 interface ChatInputProps {
   onSend: (message: string, attachments?: Attachment[]) => void;
@@ -81,24 +85,29 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
   const [viewing, setViewing] = useState<PastedBlock | null>(null);
   const [visionWarning, setVisionWarning] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
   const [slashMenuPosition, setSlashMenuPosition] = useState({ top: 0, left: 0 });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
-  const optionsPanelRef = useRef<HTMLDivElement>(null);
 
-  // Restore the persisted draft on mount (e.g. after a refresh).
-  useEffect(() => {
-    if (chatDraft && !value) {
-      setValue(chatDraft);
-      requestAnimationFrame(() => {
-        const el = textareaRef.current;
-        if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; }
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const resize = () => {
+      el.style.height = `${TEXTAREA_MIN}px`;
+      const height = Math.min(TEXTAREA_MAX, Math.max(TEXTAREA_MIN, el.scrollHeight));
+      el.style.height = `${height}px`;
+      el.style.overflowY = el.scrollHeight > TEXTAREA_MAX ? 'auto' : 'hidden';
+    };
+    resize();
+    let width = el.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+      const next = el.getBoundingClientRect().width;
+      if (next !== width) { width = next; resize(); }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [value]);
 
   /**
    * An attachment handed in from outside the composer (/paste, a drop).
@@ -115,18 +124,6 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
     textareaRef.current?.focus();
   }, [pendingAttachment, setPendingAttachment, activeModelSupportsVision]);
 
-  // Click outside to close options panel
-  useEffect(() => {
-    if (!showOptions) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (optionsPanelRef.current && !optionsPanelRef.current.contains(e.target as Node) && composerRef.current && !composerRef.current.contains(e.target as Node)) {
-        setShowOptions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showOptions]);
-
   // Sync EXTERNAL draft changes (e.g. clicking an example prompt in the welcome
   // card) into the textarea. Only when the store value diverges from local, to
   // avoid clobbering active typing (keystrokes write the store synchronously).
@@ -135,7 +132,7 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
       setValue(chatDraft);
       requestAnimationFrame(() => {
         const el = textareaRef.current;
-        if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; el.focus(); }
+        el?.focus();
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,7 +165,7 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
       setValue('');
       setChatDraft('');
       setPastedBlocks([]);
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
       return;
     }
 
@@ -179,11 +176,10 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
     const composed = msg + pastedText;
     setValue('');
     setChatDraft('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
     onSend(composed, attachments.length > 0 ? attachments : undefined);
     setAttachments([]);
     setPastedBlocks([]);
-    setShowOptions(false);
   }, [value, attachments, pastedBlocks, isRunning, onSend, onQueue, setChatDraft]);
 
   const handleFiles = useCallback((files: FileList | null) => {
@@ -218,7 +214,7 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
         // SlashCommandMenu will handle these
         return;
       }
-      
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSend();
@@ -231,10 +227,8 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
     const v = e.target.value;
     setValue(v);
     setChatDraft(v); // persist on every keystroke
-    const el = e.target;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-    
+
+
     // A leading slash opens the workflow picker. It stays open once a space is
     // typed, because "/fix the login is broken" should still reach the picker —
     // the trailing text becomes the workflow's first argument rather than
@@ -272,17 +266,17 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
   }, [handleFiles]);
 
   return (
-    <div className="px-4 pb-3 pt-2">
-      <div className="mx-auto w-full max-w-2xl relative">
+    <div className="chat-composer px-4 pb-3 pt-2">
+      <div className="mx-auto w-full max-w-3xl relative">
       {visionWarning && (
         <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-amber-agent/40 bg-warning-bg px-3 py-1.5 text-xs text-text">
-          <span>The active model has no vision support — it won&rsquo;t be able to read this image. Switch models above to attach it properly.</span>
+          <span>The active model has no vision support: it won&rsquo;t be able to read this image. Switch models above to attach it properly.</span>
           <button onClick={() => setVisionWarning(false)} className="p-0.5 rounded hover:bg-surface-3 text-text-dim hover:text-text shrink-0" title="Dismiss">
             <X size={12} />
           </button>
         </div>
       )}
-      
+
       {/* Attachment chips */}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2">
@@ -372,50 +366,24 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
         </div>
       )}
 
-      {/* SMS-style input block */}
-      <div className="space-y-2">
-        {/* A running loop reports itself here — otherwise it is indistinguishable
-            from a very long ordinary run. */}
-        <LoopBanner onStop={onStop} />
+      <LoopBanner onStop={onStop} />
 
-        {/* Top row: where the work happens, how much it may do, and how long
-            it has been going. */}
-        <div className="flex items-center justify-between gap-2">
-          <SourcePicker variant="pill" />
-          <div className="flex items-center gap-1">
-            <PermissionPicker />
-            <RunTimer />
-          </div>
-        </div>
+      {/*
+        ONE BOX: what you type, and everything that decides how it is handled.
 
-        {/*
-          THE COMPOSER'S FOCUS STATE IS A RING, NOT A BORDER COLOUR.
-
-          A 1px border going from hairline to accent is almost invisible against
-          a card that already has a border - you have to look for it to see it,
-          which is the opposite of what a focus affordance is for. A soft ring
-          laid OUTSIDE the border reads instantly and, because it is a
-          box-shadow, changes nothing about the box's geometry: no reflow, no
-          1px jump of the text you are typing.
-
-          While the agent is running the ring warms up on its own, without
-          focus. The composer is not locked during a turn (a queued message
-          joins the run at its next step), and a live control that looks
-          identical to a dead one is why people press Stop when they only meant
-          to add a note.
-        */}
-        <div
-          ref={composerRef}
-          className={`relative flex items-end gap-2 rounded-2xl border bg-surface-1 px-3 py-2
-                      transition-[box-shadow,border-color,opacity] duration-150 ease-out ${
-            disabled
-              ? 'border-border opacity-50 shadow-sm'
-              : isRunning
-              ? 'border-accent/35 shadow-[0_0_0_3px_rgb(var(--primary-rgb)/0.07)]'
-              : 'border-border shadow-sm focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_rgb(var(--primary-rgb)/0.12)]'
-          }`}
-        >
-        {/* Workflow picker, above the composer */}
+        Model, mode and permissions used to hide in an options pop-up behind a
+        chevron, so the three things that most change what a message DOES were
+        the three you could not see while writing it. They sit on the bar now,
+        at the size of a label. Focus is a soft ring outside the border (a
+        box-shadow, so the text never moves by a pixel), and while a turn runs
+        the border warms on its own: the composer is live mid-run — a message
+        queues for the agent's next step — and a live control that looks like
+        a dead one is why people press Stop when they only meant to add a note.
+      */}
+      <div
+        ref={composerRef}
+        className={`composer-box ${disabled ? 'is-disabled' : isRunning ? 'is-running' : ''}`}
+      >
         {showSlashMenu && onRunWorkflow && (
           <WorkflowMenu
             query={value.trimStart()}
@@ -426,7 +394,7 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
               setShowSlashMenu(false);
               setValue('');
               setChatDraft('');
-              if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
               onRunCommand?.(command, arg);
               textareaRef.current?.focus();
             }}
@@ -434,26 +402,6 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
           />
         )}
 
-        {/* Left: Attach button */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.go,.rs,.java,.cs,.css,.html,.yml,.yaml,.toml,.csv,.log"
-          className="hidden"
-          onChange={(e) => { handleFiles(e.target.files); e.target.value = ''; }}
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || isRunning}
-          title={isRunning ? 'Attachments have to wait for the turn to finish' : 'Attach files or images'}
-          className="p-1.5 shrink-0 rounded-lg text-text-dim hover:text-text hover:bg-surface-3 disabled:opacity-40
-                     transition-[background-color,color,transform] duration-150 ease-out enabled:active:scale-90"
-        >
-          <Paperclip size={18} />
-        </button>
-
-        {/* Center: Textarea */}
         <textarea
           ref={textareaRef}
           value={value}
@@ -467,136 +415,85 @@ export function ChatInput({ onSend, onQueue, onRunWorkflow, onRunCommand, onStop
           autoCapitalize="off"
           autoCorrect="off"
           lang="en"
-          className="flex-1 resize-none bg-transparent text-sm text-text placeholder-text-dim
-                     focus:outline-none leading-snug overflow-hidden py-1"
-          style={{ 
-            fieldSizing: 'content',
-            minHeight: '28px',
-            maxHeight: '200px'
-          } as React.CSSProperties}
+          aria-label="Message"
         />
 
-        {/* Right: Options button or Send/Stop */}
-        <div className="flex items-center gap-1 shrink-0">
-          {/* Options dropup button - always visible */}
-          <button
-            onClick={() => setShowOptions(!showOptions)}
-            disabled={disabled}
-            className="p-1.5 rounded-lg text-text-dim hover:text-text hover:bg-surface-3 disabled:opacity-40
-                       transition-[background-color,color,transform] duration-150 ease-out enabled:active:scale-90"
-            title="Options"
-          >
-            <ChevronUp size={18} className={`transition-transform ${showOptions ? 'rotate-180' : ''}`} />
-          </button>
+        <div className="composer-bar">
+          <div className="composer-bar-left">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.go,.rs,.java,.cs,.css,.html,.yml,.yaml,.toml,.csv,.log"
+              className="hidden"
+              onChange={(e) => { handleFiles(e.target.files); e.target.value = ''; }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled || isRunning}
+              title={isRunning ? 'Attachments have to wait for the turn to finish' : 'Attach files or images'}
+              aria-label="Attach files"
+              className="composer-icon"
+            >
+              <Paperclip size={16} />
+            </button>
+            <ModelSelector />
+            <ThreadTypeSelector />
+            <PermissionPicker />
+          </div>
 
-          {/*
-            The send button EARNS its colour. Empty, it is a flat disabled
-            shape; the moment there is something to send it lifts to full accent
-            and takes a soft glow, so "ready to send" is legible from the corner
-            of the eye without having to read the button. Compressing on press is
-            the whole of the tactile feedback - the click is acknowledged before
-            the message has left.
-
-            While a turn is running the same button QUEUES instead, and says so:
-            it drops to a tinted variant so it never looks like the button that
-            starts a new turn.
-          */}
-          {isRunning ? (
-            <>
-              {/* Queue, not send. Enabled only when there is something to say
-                  and room to say it — a disabled button with a reason beats a
-                  live one that silently does nothing. */}
+          <div className="composer-bar-right">
+            <ContextGauge />
+            {isRunning ? (
+              <>
+                {/* Queue, not send — enabled only when there is something to
+                    say and room to say it. */}
+                {value.trim() && (
+                  <button
+                    onClick={handleSend}
+                    disabled={queueFull || !onQueue}
+                    className="composer-send composer-send--queue"
+                    title={queueFull
+                      ? 'Three messages are already waiting: the agent reads them at its next step'
+                      : 'Queue this for the agent (Enter)'}
+                    aria-label="Queue message"
+                  >
+                    <ArrowUp size={16} strokeWidth={2.25} />
+                  </button>
+                )}
+                {/* Stop is the one destructive control here, so it is the only
+                    one that does not spring on press. */}
+                <button onClick={onStop} className="composer-stop" title="Stop the agent" aria-label="Stop">
+                  <Square size={11} fill="currentColor" />
+                </button>
+              </>
+            ) : (
               <button
                 onClick={handleSend}
-                disabled={!value.trim() || queueFull || !onQueue}
-                className="p-2 rounded-lg bg-accent/20 hover:bg-accent/30 text-accent-bright
-                           disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center
-                           transition-[background-color,transform,opacity] duration-150 ease-out
-                           enabled:active:scale-90"
-                title={
-                  queueFull ? 'Three messages are already waiting — the agent reads them at its next step'
-                  : !value.trim() ? 'Type something to queue it for the running agent'
-                  : 'Queue this for the agent (Enter)'
-                }
+                disabled={(!value.trim() && attachments.length === 0 && pastedBlocks.length === 0) || disabled}
+                className="composer-send"
+                title="Send (Enter)"
+                aria-label="Send"
               >
-                <Send size={16} />
+                <ArrowUp size={16} strokeWidth={2.25} />
               </button>
-              {/*
-                Stop is the one destructive control in the composer, so it is the
-                only one that does NOT spring on press. A satisfying little
-                bounce on the button that throws away a two-minute turn is the
-                wrong feeling to design in.
-              */}
-              <button
-                onClick={onStop}
-                className="p-2 rounded-lg bg-error-bg hover:bg-error border border-red-agent/50
-                           text-red-agent hover:text-text-bright flex items-center justify-center
-                           transition-[background-color,color,border-color] duration-150 ease-out"
-                title="Stop agent"
-              >
-                <Square size={16} />
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={(!value.trim() && attachments.length === 0 && pastedBlocks.length === 0) || disabled}
-              className="p-2 rounded-lg bg-accent hover:bg-accent-bright text-white
-                         flex items-center justify-center
-                         transition-[background-color,box-shadow,transform,opacity] duration-150 ease-out
-                         enabled:shadow-[0_0_0_3px_rgb(var(--primary-rgb)/0.14)]
-                         enabled:active:scale-90
-                         disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed"
-              title="Send (Enter)"
-            >
-              <Send size={16} />
-            </button>
-          )}
-        </div>
-
-        {/* Options dropup panel */}
-        {showOptions && !disabled && (
-          <div
-            ref={optionsPanelRef}
-            style={{ transformOrigin: 'bottom right' }}
-            className="motion-pop absolute bottom-full left-0 right-0 mb-2 bg-surface-2 border border-border-bright rounded-xl shadow-2xl p-3 z-[10]"
-          >
-            <div className="grid grid-cols-2 gap-3">
-              {/* Left column */}
-              <div className="space-y-2">
-                <div>
-                  <label className="text-[10px] text-text-dim uppercase tracking-wider font-medium block mb-1.5">Model</label>
-                  <ModelSelector />
-                </div>
-                <div>
-                  <label className="text-[10px] text-text-dim uppercase tracking-wider font-medium block mb-1.5">Mode</label>
-                  <ThreadTypeSelector />
-                </div>
-              </div>
-
-              {/* Right column */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] text-text-dim uppercase tracking-wider font-medium">Context</label>
-                  <ContextGauge />
-                </div>
-                <div className="pt-1">
-                  <GitDiffCounter />
-                </div>
-              </div>
-            </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
       </div>
 
-      {/* AI disclaimer */}
-      <p className="text-[11px] text-text-dim text-center mt-1.5">
-        Bubbly can make mistakes. Review important changes.
-      </p>
+      <div className="composer-foot">
+        <div className="composer-foot-left">
+          <SourcePicker variant="pill" />
+          <GitDiffCounter />
+        </div>
+        <div className="composer-foot-right">
+          <RunTimer />
+        </div>
+      </div>
       {disabled && (
         <p className="text-xs text-red-agent mt-1 px-1 text-center">
-          Set a workspace path in Settings first.
+          Choose a workspace to start.
         </p>
       )}
       </div>

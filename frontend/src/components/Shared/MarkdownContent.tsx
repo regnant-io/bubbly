@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeHighlight from 'rehype-highlight';
+import { Copy, Check } from './icons';
 
 interface MarkdownContentProps {
   content: string;
@@ -17,6 +18,36 @@ interface MarkdownContentProps {
   highlight?: boolean;
 }
 
+/**
+ * A fenced code block: the language, a copy button, and the code — the header
+ * every editor-grade chat gives a block, because copying a command out of an
+ * answer is the single most common thing anyone does with one.
+ */
+function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) {
+  const preRef = React.useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = React.useState(false);
+  const child = React.Children.toArray(children)[0] as React.ReactElement<{ className?: string }> | undefined;
+  const lang = /language-([\w+#.-]+)/.exec(child?.props?.className ?? '')?.[1] ?? '';
+  const copy = () => {
+    const text = preRef.current?.innerText ?? '';
+    void navigator.clipboard?.writeText(text.replace(/\n$/, ''));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+  return (
+    <div className="md-code">
+      <div className="md-code-head">
+        <span>{lang || 'code'}</span>
+        <button type="button" onClick={copy} aria-label="Copy code">
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre ref={preRef} {...props}>{children}</pre>
+    </div>
+  );
+}
+
 const LINK_COMPONENTS = {
   // Open links in a new tab.
   a({ children, href, ...props }: any) {
@@ -26,6 +57,7 @@ const LINK_COMPONENTS = {
       </a>
     );
   },
+  pre: CodeBlock,
 };
 
 /* -------------------------------------------------------------------------- *

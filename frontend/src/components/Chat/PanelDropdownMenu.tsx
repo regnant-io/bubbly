@@ -2,7 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore, type RightContextId } from '../../store';
 import { RIGHT_PANEL_META } from '../BubbleRoom/RightPanel';
-import { MoreVertical } from '../Shared/icons';
+import { LayoutGrid } from '../Shared/icons';
 
 /**
  * The panel menu.
@@ -149,34 +149,27 @@ export function PanelDropdownMenu() {
       <motion.button
         whileTap={{ scale: 0.94 }}
         onClick={() => setIsOpen((v) => !v)}
-        className={`relative p-2 rounded-lg transition-colors ${
-          isOpen || openCount > 0
-            ? 'bg-accent/20 text-accent-bright'
-            : 'text-text-dim hover:text-text hover:bg-surface-3'
-        }`}
+        className="heading-tool"
+        aria-pressed={isOpen}
         title={
-          summary.attention ? 'Panels — something needs attention'
-          : summary.live ? 'Panels — something is running'
+          summary.attention ? 'Panels: something needs attention'
+          : summary.live ? 'Panels: something is running'
           : 'Panels'
         }
         aria-label="Panels"
         aria-expanded={isOpen}
       >
-        <MoreVertical size={16} />
+        <LayoutGrid size={15} />
 
         {/*
           One indicator, chosen by importance rather than three stacked on top of
-          each other. Attention beats a count beats a pulse: if something is
+          each other. Attention beats a pulse (counts live inside the menu): if something is
           wrong, that is the only thing worth drawing.
         */}
         {summary.attention ? (
-          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-red-agent ring-2 ring-surface-1" />
-        ) : summary.count > 0 ? (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-1 rounded-full bg-accent text-surface-1 text-[9px] font-bold flex items-center justify-center tabular-nums shadow-sm">
-            {summary.count > 99 ? '99+' : summary.count}
-          </span>
+          <span className="dot" style={{ background: 'var(--error)' }} />
         ) : summary.live ? (
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-accent animate-pulse" />
+          <span className="dot motion-breathe" />
         ) : null}
       </motion.button>
 

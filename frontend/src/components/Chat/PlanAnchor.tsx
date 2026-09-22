@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore, type PlanRecord } from '../../store';
-import { ClipboardList, ArrowRight } from '../Shared/icons';
+import { ListChecks, ArrowRight } from '../Shared/icons';
 
 /**
  * A one-line marker in the transcript saying "a plan appeared here".
@@ -18,29 +18,33 @@ export function PlanAnchor({ plan }: { plan: PlanRecord }) {
   const active = plan.steps.find((s) => s.status === 'in_progress');
   const isMain = plan.owner === 'main';
 
+  const title = active ? active.title : plan.steps.find((s) => s.status !== 'done')?.title ?? plan.steps[plan.steps.length - 1]?.title ?? '';
+  const allDone = plan.steps.length > 0 && done === plan.steps.length;
+
+  // A step of the trail, not a badge: the plan is part of the work's story.
   return (
-    <button
-      onClick={() => openRightContext('plans')}
-      title="Open in the Plans panel"
-      className="group flex items-center gap-2 my-1.5 py-0.5 text-xs text-left w-full animate-fade-in"
-    >
-      <ClipboardList size={11} className={`shrink-0 ${isMain ? 'text-accent-bright/70' : 'text-violet-agent/70'}`} />
-      <span
-        className={`shrink-0 px-1.5 py-px rounded text-[9px] font-bold tracking-wider ${
-          isMain ? 'bg-accent/15 text-accent-bright' : 'bg-violet-agent/15 text-violet-agent'
-        }`}
+    <div className="tl tl--single">
+      <div
+        className="tl-row is-interactive plan-anchor"
+        role="button"
+        tabIndex={0}
+        onClick={() => openRightContext('plans')}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRightContext('plans'); } }}
+        title="Open in the Plans panel"
       >
-        {isMain ? 'MAIN' : 'AGENT'}
-      </span>
-      <span className="text-text-dim shrink-0">Plan</span>
-      <span className="text-text-muted truncate">
-        · {active ? active.title : plan.steps[0]?.title ?? ''}
-      </span>
-      <span className="shrink-0 text-text-dim tabular-nums">{done}/{plan.steps.length}</span>
-      <ArrowRight
-        size={11}
-        className="shrink-0 text-text-dim/50 opacity-0 group-hover:opacity-100 transition-opacity"
-      />
-    </button>
+        <span className="tl-glyph" aria-hidden="true"><ListChecks size={13} strokeWidth={1.75} /></span>
+        <span className="tl-line">
+          <span className="tl-verb">{isMain ? 'Plan' : 'Worker plan'}</span>
+          <span className="tl-target">{allDone ? 'All steps done' : title}</span>
+          {plan.steps.length <= 12 && <span className="plan-progress" aria-label={`${done} of ${plan.steps.length} steps done`}>
+            {plan.steps.map((st, i) => (
+              <i key={i} className={st.status === 'done' ? 'is-done' : st.status === 'in_progress' ? 'is-active' : ''} />
+            ))}
+          </span>}
+          <span className="tl-meta tabular-nums">{done}/{plan.steps.length}</span>
+        </span>
+        <span className="tl-aside"><ArrowRight size={12} /></span>
+      </div>
+    </div>
   );
 }

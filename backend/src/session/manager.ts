@@ -537,6 +537,7 @@ export function listThreads(filters?: {
     status: row.status as Session['status'],
     threadName: (row.thread_name as string) || undefined,
     parentSessionId: (row.parent_session_id as string) || undefined,
+    workspacePath: (row.workspace_path as string) || undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   }));

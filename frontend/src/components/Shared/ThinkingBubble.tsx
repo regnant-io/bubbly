@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MarkdownContent } from './MarkdownContent';
-import { Brain } from './icons';
+import { ChevronRight } from './icons';
 
 interface ThinkingBubbleProps {
   content: string;
@@ -66,50 +66,35 @@ export const ThinkingBubble = React.memo(function ThinkingBubble({ content, stre
   const longThought = elapsedMs >= STILL_THINKING_MS;
 
   return (
-    <div className="mb-3 motion-rise">
+    <div className="tl thinking motion-rise">
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="flex items-center gap-2 text-xs text-text-dim hover:text-text-muted transition-all duration-200 mb-1 group"
+        className="tl-head thinking-head"
         aria-expanded={!collapsed}
         aria-label={collapsed ? 'Expand thinking' : 'Collapse thinking'}
       >
-        {/* Brain icon with subtle animation */}
-        <Brain
-          size={14}
-          className={`shrink-0 transition-colors duration-150 ${
-            streaming
-              ? 'text-accent motion-breathe'
-              : 'text-text-dim/60 group-hover:text-text-dim'
-          }`}
-        />
-        
-        <span className="tracking-tight font-normal">
+        <ChevronRight size={13} className={`tl-caret ${collapsed ? '' : 'rotate-90'}`} />
+        <span className="tl-head-text">
           {streaming ? (
             <span className="inline-flex items-baseline gap-1.5">
               {/* The sheen crosses the word itself, so the sentence carries the
-                  liveness — no second animation is needed beside it. */}
+                  liveness; no second animation is needed beside it. */}
               <span className="sheen-text">Thinking</span>
               {longThought && (
-                <span className="motion-appear text-text-dim/70 tabular-nums">
+                <span className="motion-appear text-text-dim tabular-nums">
                   {Math.floor(elapsedMs / 1000)}s
                 </span>
               )}
             </span>
           ) : (
-            'Thought process'
+            <span className="tl-head-title">Thought process</span>
           )}
         </span>
-        
         {content && (
-          <span className="text-text-dim/50 font-normal tabular-nums">
+          <span className="tl-aside tabular-nums">
             {content.split('\n').length} lines
           </span>
         )}
-        
-        {/* Collapse indicator with smooth rotation */}
-        <span className={`text-text-dim/50 transition-transform duration-300 ${collapsed ? '' : 'rotate-90'}`}>
-          ▸
-        </span>
       </button>
 
       {/* Content with fluid collapse/expand animation - NO LEFT BORDER */}
@@ -118,11 +103,11 @@ export const ThinkingBubble = React.memo(function ThinkingBubble({ content, stre
           collapsed ? 'max-h-0 opacity-0' : 'max-h-[32rem] opacity-100'
         }`}
       >
-        <div className="pl-6">
+        <div className="thinking-body">
           <div
             ref={scrollRef}
-            className={`text-sm leading-relaxed max-h-64 overflow-y-auto pr-1 font-normal transition-opacity duration-200 ${
-              streaming ? 'text-text-dim/70' : 'text-text-dim/60'
+            className={`leading-relaxed max-h-64 overflow-y-auto pr-1 font-normal transition-opacity duration-200 ${
+              streaming ? 'text-text-dim' : 'text-text-dim'
             }`}
             style={{ fontFamily: 'inherit' }}
           >

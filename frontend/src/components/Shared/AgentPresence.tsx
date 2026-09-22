@@ -134,7 +134,7 @@ export function AgentPresence() {
 
         {isVeryLong && (
           <p className="motion-appear mt-1.5 text-[11px] leading-snug text-text-dim/80">
-            Still going. Long turns are normal — you can keep typing to add an
+            Still going. Long turns are normal: you can keep typing to add an
             instruction, or stop the run below.
           </p>
         )}

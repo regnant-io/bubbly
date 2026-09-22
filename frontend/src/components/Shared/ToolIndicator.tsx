@@ -1,9 +1,16 @@
 import React from 'react';
-import { Check, Loader2 } from './icons';
-import { getToolDisplay } from '../../utils/toolDisplay';
+import {
+  FileText, Pencil, FilePlus, Trash2, Terminal, Search, FolderTree, GitBranch, GitCommit,
+  ClipboardList, Layers, Map as MapIcon, Hash, ListTree, ShieldCheck, SlidersHorizontal,
+  Globe, Wrench, ChevronRight, X, Clock,
+} from './icons';
+import type { LucideIcon } from 'lucide-react';
+import { getToolDisplay, type ToolIconName } from '../../utils/toolDisplay';
 import { useAppContextMenu } from './ContextMenu';
 import { useStore } from '../../store';
 import { ColorizedLog } from '../../utils/logColor';
+import { DiffViewer } from './DiffViewer';
+import type { FileDiff } from '../../types';
 
 interface ToolIndicatorProps {
   tool: string;
@@ -12,18 +19,24 @@ interface ToolIndicatorProps {
   args?: Record<string, unknown>;
   result?: string;
   /** File changes produced by this call (write/edit/append/delete). */
-  diff?: Array<{ path: string; type: string; additions: number; deletions: number }>;
+  diff?: Array<{ path: string; type: string; additions: number; deletions: number; diff?: string }>;
   /** When >1, this represents N consolidated consecutive edits to one file. */
   repeatCount?: number;
   /** 1..9 keyboard-shortcut number for the most recent tool calls. */
   shortcutIndex?: number;
   /** Live stats while the call's arguments are still streaming from the model. */
   progress?: { path?: string; bytes: number; lines: number };
+  /** The live output of a command this step is running (see MessageList). */
+  live?: { output: Array<{ stream: 'stdout' | 'stderr'; content: string }>; exitCode?: number };
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+/** The same test the transcript uses to count failures — keep them in step. */
+export const TOOL_ERROR_RE = /^(error|tool (execution )?failed|cannot|could not)|failed verification/i;
+
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60_000)}m ${String(Math.round((ms % 60_000) / 1000)).padStart(2, '0')}s`;
 }
 
 /** Split a relative path into a dim directory prefix and a bright basename. */
@@ -34,23 +47,64 @@ function splitPath(p: string): { dir: string; base: string } {
   return { dir: norm.slice(0, i + 1), base: norm.slice(i + 1) };
 }
 
-/** Tools whose primary argument is a file path (shown dir-dimmed). */
+/** Tools whose primary argument is a file path (shown as an openable file). */
 const PATH_TOOLS = new Set([
   'read_file', 'write_file', 'edit_file', 'delete_file', 'append_file',
   'get_file_outline', 'read_config', 'write_config',
 ]);
+const COMMAND_TOOLS = new Set(['run_command', 'run_background']);
 
-/** A short, friendly result summary for the line. */
+/**
+ * One glyph per KIND of work, drawn in a single ink.
+ *
+ * The old line had a colour per tool (blue reads, green writes, amber commands,
+ * violet git …), which turned a busy burst into confetti and made the one
+ * colour that matters — red, for a failure — just another colour. Kinds are
+ * told apart by shape; colour is kept for state.
+ */
+const GLYPH: Record<ToolIconName, LucideIcon> = {
+  read: FileText,
+  write: FilePlus,
+  edit: Pencil,
+  delete: Trash2,
+  list: FolderTree,
+  tree: FolderTree,
+  search: Search,
+  terminal: Terminal,
+  git: GitBranch,
+  commit: GitCommit,
+  spec: ClipboardList,
+  context: Layers,
+  map: MapIcon,
+  symbol: Hash,
+  references: Hash,
+  outline: ListTree,
+  validate: ShieldCheck,
+  config: SlidersHorizontal,
+  browser: Globe,
+  generic: Wrench,
+};
+
+export function ToolGlyph({ tool, args, size = 13 }: { tool: string; args?: Record<string, unknown>; size?: number }) {
+  const clean = tool.replace(/^function:/, '');
+  const Icon = clean === 'watch' ? Clock : GLYPH[getToolDisplay(tool, args).icon] ?? Wrench;
+  return <Icon size={size} strokeWidth={1.75} />;
+}
+
+/** A short, factual result summary for the line: counts, never adjectives. */
 function resultSummary(tool: string, result: string): string | null {
   const r = result.trim();
   if (!r) return null;
   const clean = tool.replace(/^function:/, '');
   if (['search', 'grep_search', 'search_in_files', 'find_files', 'list_directory', 'find_references'].includes(clean)) {
-    const lines = r.split('\n').filter((l) => l.trim()).length;
     if (/no (matches|files|results|references)/i.test(r)) return 'no results';
+    const lines = r.split('\n').filter((l) => l.trim()).length;
     return `${lines} result${lines === 1 ? '' : 's'}`;
   }
-  if (/error|failed|cannot|not found/i.test(r.slice(0, 80))) return 'error';
+  if (clean === 'read_file') {
+    const lines = r.split('\n').length;
+    return lines > 1 ? `${lines.toLocaleString()} lines` : null;
+  }
   return null;
 }
 
@@ -69,50 +123,40 @@ function parseReadFilesBlocks(result: string): Array<{ title: string; body: stri
 }
 
 /**
- * Output body: plain indented text behind a hairline, not a boxed card.
+ * The expanded body: a recessed console, not another card.
  *
- * The body goes through the log colouriser rather than out as one grey block.
- * A shell result is a LOG — a failed command's message, an exit line, a URL a
- * dev server just printed — and rendering all of it in the same dim grey meant
- * "'.' is not recognized as an internal or external command" looked exactly
- * like a successful build. The colouring is deliberately sparse: errors,
- * warnings, successes, prompts and links, and nothing else.
+ * Output goes through the log colouriser because a shell result is a LOG — a
+ * failure message, an exit line, a URL a dev server printed — and one flat grey
+ * made "'.' is not recognized" look exactly like a successful build.
  */
-function OutputBlock({ label, body, isError }: { label?: string; body: string; isError?: boolean }) {
+function Console({ prompt, body, label, isError }: { prompt?: string; body?: string; label?: string; isError?: boolean }) {
   return (
-    <div className="mt-1 mb-2 ml-1 pl-3 border-l border-border">
-      {label && <div className="text-[10px] text-text-dim mb-1 font-mono">{label}</div>}
-      <div className={`text-[12px] font-mono max-h-56 overflow-y-auto leading-relaxed ${isError ? 'text-red-agent/90' : 'text-text-dim'}`}>
-        <ColorizedLog text={body} maxChars={4000} />
-      </div>
+    <div className={`tl-console ${isError ? 'tl-console--error' : ''}`}>
+      {label && <div className="tl-console-label">{label}</div>}
+      {prompt && <div className="tl-console-prompt"><span aria-hidden="true">$</span> {prompt}</div>}
+      {body && body.trim() && <ColorizedLog text={body} maxChars={6000} />}
     </div>
   );
 }
 
 /**
- * A tool call, rendered as a LINE OF WORDS rather than a card.
+ * ONE STEP OF AGENT WORK — ONE LINE.
  *
- * Tool calls are punctuation in a conversation, not content. Framing each one in
- * a bordered card with an icon, a colour rail and a status chip gave a
- * `read_file` the same visual weight as the answer it was gathered for — twenty
- * of them turned a transcript into a wall of boxes. So: one quiet line of text.
- * "Read src/index.ts · 42 lines". Colour is used only where it carries
- * information (an error, a diff stat), never as decoration. The line stays
- * clickable to reveal its output, which appears as indented text behind a
- * hairline — subordinate to the call, not another card.
+ *   [glyph]  Edited  src/app/App.tsx  +12 −3                      1.2s  ›
+ *
+ * The glyph sits on the trail's rail (see ToolStepGroup); the verb says what
+ * happened in the tense you are reading it in; the target is the thing it
+ * happened to, and a file target opens the file. Everything else — duration,
+ * the disclosure caret, the shortcut number — waits for hover, so a settled
+ * transcript reads as a column of plain sentences.
+ *
+ * The step opens on click to show what it produced: a diff for a change, a
+ * console for a command, the matches for a search. A running step with
+ * something worth watching (a command, a long write) opens by itself and closes
+ * when it lands — until the user touches it, after which it is theirs.
  */
-export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, duration, args, result, diff, repeatCount, shortcutIndex, progress }: ToolIndicatorProps) {
+export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, duration, args, result, diff, repeatCount, shortcutIndex, progress, live }: ToolIndicatorProps) {
   const [expanded, setExpanded] = React.useState(false);
-  /**
-   * Has the user taken control of this step's disclosure?
-   *
-   * A step opens itself while it runs — you want to see a build's arguments and
-   * a write's growing line count as they happen — and closes itself the moment
-   * it finishes, so a settled transcript is a list of one-line outcomes rather
-   * than a wall of output. That automation must stop dead the first time the
-   * user clicks, or a step they deliberately opened to read would snap shut
-   * under them the instant its result landed.
-   */
   const userControlled = React.useRef(false);
   const toggle = React.useCallback(() => {
     userControlled.current = true;
@@ -120,33 +164,36 @@ export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, d
   }, []);
   const { bind } = useAppContextMenu();
   const openFilePreview = useStore((s) => s.openFilePreview);
+
+  const cleanTool = tool.replace(/^function:/, '');
   const display = getToolDisplay(tool, args);
   const done = status === 'complete';
   const verb = done ? display.past : display.gerund;
+  const isError = done && !!result && TOOL_ERROR_RE.test(result.trim());
+  const summary = done && result && !isError ? resultSummary(tool, result) : null;
+  const isCommand = COMMAND_TOOLS.has(cleanTool);
+  const command = isCommand && typeof args?.command === 'string' ? args.command : null;
 
-  const hasDetails = done && !!result && result.length > 0;
-  const isReadFiles = /(^|:)read_files$/.test(tool);
-  const isError = !!result && /^(error|tool (execution )?failed|cannot|could not)|failed verification/i.test(result.trim());
-  const summary = done && result ? resultSummary(tool, result) : null;
-
-  const cleanTool = tool.replace(/^function:/, '');
-  // While arguments stream, the real args aren't parsed yet — but the streaming
-  // progress already knows the path. Prefer it so the file name appears within
-  // a moment of the call starting, not a minute later when it completes.
+  // While arguments stream, the parsed args are not there yet but the progress
+  // already knows the path — so the file name shows within a moment of the call.
   const rawPath = (PATH_TOOLS.has(cleanTool) && typeof args?.path === 'string' ? String(args.path) : null)
-    ?? (status !== 'complete' ? progress?.path ?? null : null);
+    ?? (!done ? progress?.path ?? null : null);
   const pathParts = rawPath ? splitPath(rawPath) : null;
-  
+
+  const diffs = (diff ?? []).filter((d) => typeof d.diff === 'string' && d.diff.length > 0) as FileDiff[];
+  const additions = diff?.reduce((n, d) => n + (d.additions || 0), 0) ?? 0;
+  const deletions = diff?.reduce((n, d) => n + (d.deletions || 0), 0) ?? 0;
+  const showDiffStats = done && !isError && (additions > 0 || deletions > 0);
+  const showWriting = !done && !!progress && progress.lines > 3;
+
+  const hasBody = done ? (diffs.length > 0 || !!result?.trim() || !!command) : !!command;
+
   /**
-   * Open the file this call touched.
-   *
-   * Fetches the file's CURRENT content rather than reusing the tool result. The
-   * result is only the file for `read_file`; for a write or an edit it is a
-   * status sentence, which is why clicking the chip after an edit used to show
-   * "Wrote 42 lines to src/app.ts" in place of the file. The diff and a one-line
-   * summary travel alongside, so a non-read call still says what it did.
+   * Open the file this call touched — its CURRENT content, with this call's
+   * diff alongside. The tool result is only the file for a read; for a write it
+   * is a status sentence, which is what clicking used to show instead.
    */
-  const handlePathClick = React.useCallback((e: React.MouseEvent) => {
+  const openFile = React.useCallback((e: React.SyntheticEvent) => {
     e.stopPropagation();
     if (!rawPath) return;
     const type: 'read' | 'write' | 'edit' | 'delete' =
@@ -162,135 +209,101 @@ export const ToolIndicator = React.memo(function ToolIndicator({ tool, status, d
     });
   }, [rawPath, cleanTool, diff, result, openFilePreview]);
 
-  /** Show a live line count only for a call big enough that the wait is felt. */
-  const showWriting = status !== 'complete' && !!progress && progress.lines > 3;
-
-  const additions = diff?.reduce((n, d) => n + (d.additions || 0), 0) ?? 0;
-  const deletions = diff?.reduce((n, d) => n + (d.deletions || 0), 0) ?? 0;
-  const showDiffStats = done && !isError && (additions > 0 || deletions > 0);
-
-  const blocks = isReadFiles && result ? parseReadFilesBlocks(result) : [];
-
-  // A live detail line worth opening for while the step runs: what it is
-  // actually doing, drawn from whatever has arrived so far.
-  const liveDetail = React.useMemo(() => {
-    if (done) return null;
-    const a = args ?? {};
-    const first = (...keys: string[]) => {
-      for (const k of keys) {
-        const v = (a as Record<string, unknown>)[k];
-        if (typeof v === 'string' && v.trim()) return v.trim();
-      }
-      return null;
-    };
-    return first('command', 'query', 'pattern', 'instruction', 'path', 'url', 'content')
-      ?? progress?.path
-      ?? null;
-  }, [done, args, progress]);
-
-  // The automatic half of the disclosure: open while running, closed once the
-  // outcome is a single line. Manual control always wins (see userControlled).
+  // Automatic disclosure: a running command shows its console; everything
+  // folds once it has landed. Manual control always wins.
   React.useEffect(() => {
     if (userControlled.current) return;
-    setExpanded(!done && !!liveDetail);
-  }, [done, liveDetail]);
+    setExpanded(!done && isCommand);
+  }, [done, isCommand]);
+
+  const blocks = /(^|:)read_files$/.test(tool) && result ? parseReadFilesBlocks(result) : [];
+  // While the command runs, its console is the live stream; once it lands,
+  // the recorded result (which is what a reloaded thread has) takes over.
+  const liveText = live ? live.output.map((o) => o.content).join('') : '';
+  const exitCode = live?.exitCode;
+  const errorLine = isError ? result!.trim().split('\n')[0].replace(/^error:\s*/i, '') : null;
 
   return (
-    <div className="group my-1 motion-rise">
+    <div
+      className={`tl-step motion-rise ${!done ? 'is-running' : ''} ${isError ? 'is-error' : ''} ${expanded ? 'is-open' : ''}`}
+    >
       <div
         {...(shortcutIndex ? { 'data-tc-index': shortcutIndex } : {})}
-        className={`flex items-baseline gap-1.5 py-0.5 text-[13px] leading-relaxed ${
-          hasDetails ? 'cursor-pointer' : ''
-        }`}
-        onClick={() => { if (hasDetails || liveDetail) toggle(); }}
-        role={hasDetails || liveDetail ? 'button' : undefined}
-        aria-expanded={hasDetails || liveDetail ? expanded : undefined}
+        className={`tl-row ${hasBody ? 'is-interactive' : ''}`}
+        onClick={hasBody ? toggle : undefined}
+        role={hasBody ? 'button' : undefined}
+        tabIndex={hasBody ? 0 : undefined}
+        aria-expanded={hasBody ? expanded : undefined}
+        onKeyDown={(e) => { if (hasBody && e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } }}
         {...bind(() => [
           ...(result ? [{ label: 'Copy output', onSelect: () => { navigator.clipboard?.writeText(result); } }] : []),
-          { label: 'Copy tool name', onSelect: () => { navigator.clipboard?.writeText(cleanTool); } },
-          ...(hasDetails || liveDetail ? [{ label: expanded ? 'Collapse' : 'Expand', onSelect: toggle, separatorAfter: true }] : []),
+          ...(command ? [{ label: 'Copy command', onSelect: () => { navigator.clipboard?.writeText(command); } }] : []),
+          ...(rawPath ? [{ label: 'Open file', onSelect: () => openFile({ stopPropagation() {} } as React.SyntheticEvent) }] : []),
+          ...(hasBody ? [{ label: expanded ? 'Collapse' : 'Expand', onSelect: toggle }] : []),
         ])}
       >
-        {/* Status: a spinner only while working, a quiet tick when done. The
-            tick is the ONLY glyph on a finished line — everything else is text. */}
-        <span className="shrink-0 w-3.5 self-center">
-          {status === 'executing'
-            ? <Loader2 size={11} className="animate-spin text-text-dim" />
-            : isError
-            ? <span className="text-red-agent text-[11px] font-bold">!</span>
-            /* The tick is keyed on the transition to `complete`, so it plays its
-               settle exactly once — when the step actually finished — instead of
-               replaying on every parent re-render during a busy stream. */
-            : <Check key="done" size={11} className="tool-tick text-text-dim/50 group-hover:text-green-agent transition-colors" />}
+        <span className="tl-glyph" aria-hidden="true">
+          {isError ? <X size={12} strokeWidth={2.25} /> : <ToolGlyph tool={tool} args={args} />}
         </span>
 
-        <span className="flex-1 min-w-0 truncate">
-          <span className={`${isError ? 'text-red-agent' : 'text-text-muted'} ${status === 'executing' ? 'sheen-text' : ''}`}>
-            {verb}
-          </span>
+        <span className="tl-line">
+          <span className={`tl-verb ${!done ? 'sheen-text' : ''}`}>{verb}</span>
           {pathParts ? (
-            <>
-              <span className="text-text-dim"> (</span>
-              <span
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono
-                  transition-[background-color,color,box-shadow] duration-150 ease-out ${
-                  done
-                    ? 'bg-accent/10 text-accent-bright cursor-pointer hover:bg-accent/20 hover:shadow-[0_0_0_1px_rgb(var(--primary-rgb)/0.35)]'
-                    : 'bg-surface-2 text-text-dim'
-                }`}
-                onClick={done ? handlePathClick : undefined}
-                title={done ? `Open ${pathParts.base}` : undefined}
-                role={done ? 'button' : undefined}
-              >
-                {pathParts.base}
-              </span>
-              <span className="text-text-dim">)</span>
-            </>
+            <span
+              className={`tl-target tl-file ${done ? 'is-link' : ''}`}
+              onClick={done ? openFile : undefined}
+              onKeyDown={done ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFile(e); } } : undefined}
+              role={done ? 'link' : undefined}
+              tabIndex={done ? 0 : undefined}
+              title={rawPath ?? undefined}
+            >
+              {pathParts.dir && <span className="tl-file-dir">{pathParts.dir}</span>}
+              <span className="tl-file-base">{pathParts.base}</span>
+            </span>
           ) : display.target ? (
-            <span className="text-text-dim font-mono text-[12.5px]"> {display.target}</span>
+            <span className={`tl-target ${isCommand ? 'tl-code' : ''}`} title={isCommand ? command ?? undefined : undefined}>
+              {display.target}
+            </span>
           ) : null}
-          {status === 'executing' && !showWriting && <span className="text-text-dim">…</span>}
 
-          {/* The live writing counter. This is the whole point: a 700-line file
-              used to sit on a motionless spinner for a minute. Now the line
-              count climbs as the model emits the file, so the wait is legibly
-              progress rather than a hang. */}
           {showWriting && (
-            <span className="text-accent-bright/80 tabular-nums"> · {progress!.lines.toLocaleString()} lines<span className="text-text-dim">…</span></span>
+            <span className="tl-meta tabular-nums">{progress!.lines.toLocaleString()} lines</span>
           )}
-
-          {repeatCount && repeatCount > 1 && <span className="text-text-dim/70"> · {repeatCount} edits</span>}
-          {summary && <span className={isError ? 'text-red-agent/80' : 'text-text-dim/70'}> · {summary}</span>}
+          {repeatCount && repeatCount > 1 && <span className="tl-meta">{repeatCount} edits</span>}
+          {summary && <span className="tl-meta">{summary}</span>}
           {showDiffStats && (
-            <span className="font-mono tabular-nums">
-              {additions > 0 && <span className="text-green-agent/80"> +{additions}</span>}
-              {deletions > 0 && <span className="text-red-agent/80"> −{deletions}</span>}
+            <span className="tl-diffstat">
+              {additions > 0 && <span className="is-add">+{additions}</span>}
+              {deletions > 0 && <span className="is-del">−{deletions}</span>}
             </span>
           )}
-          {/* Duration and the expand hint stay on the line, revealed on hover so
-              a settled transcript reads as clean prose. */}
-          {done && duration !== undefined && duration >= 0 && (
-            <span className="text-text-dim/50 tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"> · {formatDuration(duration)}</span>
+          {errorLine && <span className="tl-error-line" title={result}>{errorLine}</span>}
+          {!errorLine && exitCode !== undefined && exitCode !== 0 && (
+            <span className="tl-error-line">exit {exitCode}</span>
           )}
-          {hasDetails && (
-            <span className="text-text-dim/50 opacity-0 group-hover:opacity-100 transition-opacity"> · {expanded ? 'hide' : 'show'}</span>
-          )}
-          {shortcutIndex && (
-            <span className="text-text-dim/40 tabular-nums opacity-0 group-hover:opacity-100 transition-opacity" title={`Press ${shortcutIndex}`}> [{shortcutIndex}]</span>
-          )}
+        </span>
+
+        <span className="tl-aside">
+          {shortcutIndex && <kbd title={`Press ${shortcutIndex} to toggle`}>{shortcutIndex}</kbd>}
+          {done && duration !== undefined && duration >= 0 && <span className="tabular-nums">{formatDuration(duration)}</span>}
+          {hasBody && <ChevronRight size={12} className="tl-caret" />}
         </span>
       </div>
 
-      {expanded && result && (
-        blocks.length > 1
-          ? <div className="space-y-1">{blocks.map((b, i) => <OutputBlock key={i} label={b.title || `file ${i + 1}`} body={b.body} />)}</div>
-          : <OutputBlock body={result} isError={isError} />
-      )}
-
-      {/* What the step is doing, while it's doing it. Replaced by the result
-          (and folded away) the moment it completes. */}
-      {expanded && !result && liveDetail && (
-        <OutputBlock label="running" body={liveDetail} />
+      {expanded && (
+        <div className="tl-body motion-appear">
+          {diffs.length > 0 && !isError ? (
+            <div className="tl-diff"><DiffViewer diffs={diffs} compact /></div>
+          ) : blocks.length > 1 ? (
+            blocks.map((b, i) => <Console key={i} label={b.title || `file ${i + 1}`} body={b.body} />)
+          ) : (
+            <Console
+              prompt={command ?? undefined}
+              body={done ? (result || liveText) : liveText}
+              isError={isError || (exitCode !== undefined && exitCode !== 0)}
+            />
+          )}
+        </div>
       )}
     </div>
   );

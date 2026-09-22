@@ -13,6 +13,7 @@ import {
   AlertCircle
 } from '../Shared/icons';
 import { ThreadListSkeleton } from '../Shared/SkeletonLoader';
+import { refreshThreads } from '../../utils/threads';
 
 interface ThreadMetadata {
   id: string;
@@ -105,6 +106,7 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
       const response = await fetch('/api/sessions', { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to delete threads');
       setThreads([]);
+      void refreshThreads();
       // The active thread is now gone — clear its transcript/plan/diffs so the
       // UI doesn't keep showing a conversation that no longer exists.
       const store = useStore.getState();
@@ -139,8 +141,9 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
         store.resetThreadState();
         store.setCurrentSessionId(null);
       }
-      // Reload threads after deletion
+      // Reload threads after deletion — here and in the sidebar.
       loadThreads(true);
+      void refreshThreads();
     } catch (err) {
       console.error('Failed to delete thread:', err);
       alert(err instanceof Error ? err.message : 'Failed to delete thread');
@@ -150,10 +153,10 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
   const getThreadIcon = (type: string) => {
     switch (type) {
       case 'spec_session':
-        return <ClipboardList size={14} className="text-accent-bright" />;
+        return <ClipboardList size={14} className="text-text-dim shrink-0" />;
       case 'vibe_coding':
       default:
-        return <MessageSquare size={14} className="text-blue-agent" />;
+        return <MessageSquare size={14} className="text-text-dim shrink-0" />;
     }
   };
 
@@ -195,8 +198,7 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
       <div className="flex flex-col gap-3 px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Clock size={14} className="text-accent-bright" />
-            <span className="text-sm font-medium text-text">Thread History</span>
+            <span className="text-[13px] font-medium text-text">All threads</span>
           </div>
           <div className="flex items-center gap-1">
             {threads.length > 0 && (
@@ -237,7 +239,7 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
           onChange={(e) => setFilterType(e.target.value as typeof filterType)}
           className="w-full px-3 py-2 text-xs bg-surface-2 border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent/50 focus:border-accent/50 transition-colors"
         >
-          <option value="all">All Threads</option>
+          <option value="all">All threads</option>
           <option value="vibe_coding">Vibe threads</option>
           <option value="spec_session">Spec threads</option>
         </select>
@@ -267,58 +269,49 @@ export function ThreadPanel({ onThreadSelect }: ThreadPanelProps) {
             {searchQuery || filterType !== 'all' ? 'No threads found' : 'No threads yet'}
           </div>
         ) : (
-          <div className="divide-y divide-border">
-            {threads.map((thread) => (
+          <div className="py-1">
+            {threads.map((thread) => {
+              const live = (thread as { running?: boolean }).running;
+              return (
               <div
                 key={thread.id}
                 onClick={() => onThreadSelect(thread.id)}
-                className={`flex flex-col gap-2 px-4 py-3 cursor-pointer transition-colors ${
-                  currentSessionId === thread.id ? 'bg-accent/10 border-l-2 border-accent' : 'hover:bg-surface-3/50'
+                className={`group mx-2 my-0.5 flex flex-col gap-1 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                  currentSessionId === thread.id ? 'bg-surface-3' : 'hover:bg-surface-2'
                 }`}
               >
-                {/* Thread header */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {getThreadIcon(thread.threadType)}
-                    <span className="text-xs font-medium text-text truncate">
+                    <span className="text-[13px] font-medium text-text truncate">
                       {thread.threadName || `${threadTypeLabel(thread.threadType).label} thread`}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-text-dim">
-                      {formatDate(thread.updatedAt)}
-                    </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {live
+                      ? <span className="sb-thread-live" aria-label="Running" />
+                      : <span className="text-[11px] text-text-dim tabular-nums">{formatDate(thread.updatedAt)}</span>}
                     <button
                       onClick={(e) => handleDelete(thread.id, e)}
-                      className="p-1 rounded hover:bg-red-agent/20 text-text-dim hover:text-red-agent transition-colors"
+                      className="p-1 rounded text-text-dim hover:text-red-agent hover:bg-error-bg opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                       title="Delete thread"
+                      aria-label="Delete thread"
                     >
                       <Trash2 size={12} />
                     </button>
                   </div>
                 </div>
-
-                {/* Thread preview */}
-                <p className="text-xs text-text-dim line-clamp-2">
+                <p className="text-xs text-text-dim line-clamp-2 pl-[22px]">
                   {thread.firstMessage || 'No messages yet'}
                 </p>
-
-                {/* Thread metadata */}
-                <div className="flex items-center gap-3 text-xs text-text-dim">
-                  <span className="flex items-center gap-1">
-                    <MessageSquare size={10} />
-                    {thread.messageCount}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Zap size={10} />
-                    {thread.model}
-                  </span>
-                  <span className={`flex items-center gap-1 ${getStatusColor(thread.status)}`}>
-                    {statusLabel(thread.status).label}
-                  </span>
+                <div className="flex items-center gap-3 text-[11px] text-text-dim pl-[22px]">
+                  <span className="flex items-center gap-1"><MessageSquare size={10} />{thread.messageCount}</span>
+                  <span className="truncate">{thread.model}</span>
+                  {live && <span className="text-accent font-medium">Running</span>}
                 </div>
               </div>
-            ))}
+              );
+            })}
             {/* Load more with spinner */}
             {hasMore && (
               <div className="flex justify-center py-4">

@@ -100,4 +100,13 @@ export {
   MoreHorizontal,
   MoreVertical,
   ChevronsDownUp,
+  // Shell
+  SquarePen,
+  PanelLeftOpen,
+  ArrowUp,
+  ListChecks,
+  GitCompare,
+  SquareTerminal,
+  AppWindow,
+  ArrowUpRight,
 } from 'lucide-react';

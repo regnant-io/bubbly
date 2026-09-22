@@ -584,7 +584,7 @@ function createWindow(port, options = {}) {
     height: 900,
     minWidth: 940,
     minHeight: 600,
-    backgroundColor: '#1a1614',
+    backgroundColor: '#141619',
     show: false,
     title: 'Bubbly',
     // Clean, frameless-style chrome: hide the OS title bar but keep the native
@@ -598,7 +598,7 @@ function createWindow(port, options = {}) {
       // are tinted to stay legible against the theme.
       color: 'rgba(0,0,0,0)',
       symbolColor: '#e8dfce',
-      height: 36,
+      height: 40,
     },
     autoHideMenuBar: true,
     // On Windows use the multi-resolution .ico so the taskbar/window icon
@@ -1000,7 +1000,7 @@ ipcMain.handle('bubbly:set-titlebar-overlay', (_event, opts) => {
     // Keep the overlay background transparent; only the symbol color tracks the theme.
     const color = typeof opts?.color === 'string' ? opts.color : 'rgba(0,0,0,0)';
     const symbolColor = typeof opts?.symbolColor === 'string' ? opts.symbolColor : '#e6e1dc';
-    mainWindow.setTitleBarOverlay({ color, symbolColor, height: 36 });
+    mainWindow.setTitleBarOverlay({ color, symbolColor, height: 40 });
     return true;
   } catch {
     return false;

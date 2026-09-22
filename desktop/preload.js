@@ -14,6 +14,14 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Startup IPC can arrive immediately after did-finish-load, before React has
+// mounted and subscribed. Cache the latest one so "Open with Bubbly" cannot
+// miss the instruction to start clean.
+let pendingNewWindow = null;
+ipcRenderer.on('bubbly:new-window', (_event, payload) => {
+  pendingNewWindow = payload ?? {};
+});
+
 contextBridge.exposeInMainWorld('bubblyDesktop', {
   isDesktop: true,
 
@@ -91,6 +99,11 @@ contextBridge.exposeInMainWorld('bubblyDesktop', {
   onNewWindow: (callback) => {
     const handler = (_event, payload) => callback(payload ?? {});
     ipcRenderer.on('bubbly:new-window', handler);
+    if (pendingNewWindow) {
+      const payload = pendingNewWindow;
+      pendingNewWindow = null;
+      queueMicrotask(() => callback(payload));
+    }
     return () => ipcRenderer.removeListener('bubbly:new-window', handler);
   },
 });

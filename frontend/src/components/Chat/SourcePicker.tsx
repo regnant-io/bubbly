@@ -468,7 +468,7 @@ function GitTab({ onOpened }: { onOpened: () => void }) {
         />
         <p className="mt-1 text-[10px] text-text-dim leading-relaxed">
           Cloned to <code className="font-mono">~/.bubbly/repos</code> and worked on locally. Bubbly authenticates
-          with your existing git credentials — nothing to paste if <code className="font-mono">gh</code> or an
+          with your existing git credentials: nothing to paste if <code className="font-mono">gh</code> or an
           ssh key already works.
         </p>
       </div>

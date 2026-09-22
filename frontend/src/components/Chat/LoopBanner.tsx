@@ -47,7 +47,7 @@ export function LoopBanner({ onStop }: { onStop: () => void }) {
           <div className="text-[10px] text-text-dim tabular-nums">
             {remaining > 0
               ? `about ${remaining} minute${remaining === 1 ? '' : 's'} of budget left`
-              : 'budget spent — finishing this round'}
+              : 'budget spent: finishing this round'}
           </div>
         </div>
 

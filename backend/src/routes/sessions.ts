@@ -49,6 +49,15 @@ sessionsRouter.get('/stats', (req, res) => {
  *   - search: search query for thread name or first message
  *   - limit: max number of threads to return (default: 50)
  */
+/**
+ * Is a thread working right now? Injected by the server (see index.ts) rather
+ * than imported, so this router does not drag the whole agent in with it.
+ */
+let runningProbe: (sessionId: string) => boolean = () => false;
+export function setThreadRunningProbe(probe: (sessionId: string) => boolean): void {
+  runningProbe = probe;
+}
+
 sessionsRouter.get('/threads', (req, res) => {
   const threadType = req.query.threadType as ThreadType | undefined;
   const searchQuery = req.query.search as string | undefined;
@@ -76,7 +85,7 @@ sessionsRouter.get('/threads', (req, res) => {
     });
     
     logger.info('Threads listed successfully', { count: threads.length });
-    res.json(threads);
+    res.json(threads.map((t) => ({ ...t, running: runningProbe(t.id) })));
   } catch (err) {
     logger.error('Failed to list threads', { 
       error: err instanceof Error ? err.message : String(err) 

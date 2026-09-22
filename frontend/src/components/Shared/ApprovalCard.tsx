@@ -1,5 +1,6 @@
 import React from 'react';
-import { Check, X, AlertCircle, Terminal, FileCode, GitCommit } from './icons';
+import { Check, X } from './icons';
+import { ToolGlyph } from './ToolIndicator';
 
 interface ApprovalCardProps {
   approvalId: string;
@@ -11,22 +12,27 @@ interface ApprovalCardProps {
   onReject: (id: string) => void;
 }
 
-function toolDescription(tool: string, args: Record<string, unknown>): string {
+/** The question, phrased as one: what exactly is about to happen. */
+function question(tool: string, args: Record<string, unknown>): { ask: string; done: string; target: string; code: boolean } {
+  const path = typeof args.path === 'string' ? args.path : '';
   switch (tool) {
-    case 'write_file': return `Write to ${args.path}`;
-    case 'edit_file': return `Edit ${args.path}`;
-    case 'delete_file': return `Delete ${args.path}`;
-    case 'run_command': return `Run: ${args.command}`;
-    case 'git_add_and_commit': return `Commit: "${args.message}"`;
-    default: return tool;
+    case 'run_command':
+    case 'run_background':
+      return { ask: 'Run this command?', done: 'Ran', target: String(args.command ?? ''), code: true };
+    case 'write_file': return { ask: 'Create this file?', done: 'Created', target: path, code: true };
+    case 'edit_file': return { ask: 'Edit this file?', done: 'Edited', target: path, code: true };
+    case 'append_file': return { ask: 'Append to this file?', done: 'Appended to', target: path, code: true };
+    case 'delete_file': return { ask: 'Delete this file?', done: 'Deleted', target: path, code: true };
+    case 'git_add_and_commit':
+    case 'git_commit':
+      return { ask: 'Commit these changes?', done: 'Committed', target: String(args.message ?? ''), code: false };
+    default:
+      return { ask: `Allow ${tool.replace(/_/g, ' ')}?`, done: tool.replace(/_/g, ' '), target: path, code: !!path };
   }
 }
 
-function ToolIcon({ tool }: { tool: string }) {
-  if (tool === 'run_command') return <Terminal size={16} className="text-amber-agent" />;
-  if (tool === 'git_add_and_commit') return <GitCommit size={16} className="text-green-agent" />;
-  return <FileCode size={16} className="text-blue-agent" />;
-}
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+const KEY = (k: string) => (IS_MAC ? `⌥${k}` : `Alt ${k}`);
 
 /**
  * Is a keystroke aimed at this card, or at something the user is typing into?
@@ -91,80 +97,38 @@ export function ApprovalCard({ approvalId, tool, args, preview, status, onApprov
     return () => window.removeEventListener('keydown', onKey);
   }, [isPending, approvalId, onApprove, onReject]);
 
+  const q = question(tool, args);
+
+  if (!isPending) {
+    // Answered: a quiet one-line record, not a card still asking for attention.
+    const label = status === 'approved' ? 'Allowed' : status === 'expired' ? 'Expired — nobody answered in time' : 'Denied';
+    return (
+      <div className={`ask-record is-${status}`}>
+        {status === 'approved' ? <Check size={13} /> : <X size={13} />}
+        <span className="ask-record-label">{label}</span>
+        {q.target && <span className="ask-record-target">{q.target}</span>}
+      </div>
+    );
+  }
+
   return (
-    <div
-      ref={cardRef}
-      data-approval-pending={isPending ? 'true' : undefined}
-      className={`rounded-xl border p-4 my-2 motion-pop transition-[background-color,border-color,opacity,box-shadow] duration-200 ease-out ${
-        isPending
-          ? 'border-accent/40 bg-accent/5 shadow-[0_0_0_3px_rgb(var(--primary-rgb)/0.06)]'
-          : status === 'approved'
-          ? 'border-green-agent/30 bg-success-bg opacity-70'
-          : status === 'expired'
-          ? 'border-border bg-surface-2 opacity-60'
-          : 'border-red-agent/30 bg-error-bg opacity-70'
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 relative">
-          {isPending ? (
-            <>
-              {/* The halo is the peripheral-vision signal. It runs only while
-                  the question is open, so a settled transcript is still. */}
-              <span className="motion-halo absolute inset-0 rounded-full bg-accent/30" aria-hidden="true" />
-              <AlertCircle size={16} className="relative text-accent-bright" />
-            </>
-          ) : status === 'approved' ? (
-            <Check size={16} className="text-green-agent" />
-          ) : (
-            <X size={16} className="text-red-agent" />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <ToolIcon tool={tool} />
-            <span className="text-sm font-medium text-text">
-              {isPending ? 'Approval Required' : status === 'approved' ? 'Approved' : status === 'expired' ? 'Expired — nobody answered in time' : 'Rejected'}
-            </span>
-            {isPending && (
-              <span className="text-[11px] text-text-dim">the run is waiting</span>
-            )}
-          </div>
-          <p className="text-sm text-text-muted mb-2">{toolDescription(tool, args)}</p>
-
-          {preview && (
-            <pre className="text-xs font-mono bg-surface-1 border border-border rounded-lg p-3 text-text-muted max-h-32 overflow-y-auto whitespace-pre-wrap mb-3">
-              {preview}
-            </pre>
-          )}
-
-          {isPending && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => onApprove(approvalId)}
-                title="Allow (Alt+A)"
-                className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-success-bg hover:bg-success
-                           text-green-agent hover:text-text-bright text-sm font-medium border border-green-agent/50
-                           transition-[background-color,color,transform] duration-150 ease-out active:scale-95"
-              >
-                <Check size={14} />
-                Allow
-                <kbd className="ml-0.5 text-[10px] font-mono opacity-50 group-hover:opacity-80 transition-opacity">⌥A</kbd>
-              </button>
-              <button
-                onClick={() => onReject(approvalId)}
-                title="Deny (Alt+D)"
-                className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-error-bg hover:bg-error
-                           text-red-agent hover:text-text-bright text-sm font-medium border border-red-agent/40
-                           transition-[background-color,color] duration-150 ease-out"
-              >
-                <X size={14} />
-                Deny
-                <kbd className="ml-0.5 text-[10px] font-mono opacity-50 group-hover:opacity-80 transition-opacity">⌥D</kbd>
-              </button>
-            </div>
-          )}
-        </div>
+    <div ref={cardRef} data-approval-pending="true" className="ask-card motion-pop" role="group" aria-label={q.ask}>
+      <div className="ask-head">
+        <span className="ask-glyph" aria-hidden="true"><ToolGlyph tool={tool} args={args} size={14} /></span>
+        <span className="ask-title">{q.ask}</span>
+        <span className="ask-wait"><i aria-hidden="true" />The agent is waiting</span>
+      </div>
+      {q.target && (
+        q.code ? <pre className="ask-target">{q.target}</pre> : <p className="ask-target ask-target--text">{q.target}</p>
+      )}
+      {preview && <pre className="ask-preview">{preview}</pre>}
+      <div className="ask-actions">
+        <button onClick={() => onApprove(approvalId)} title={`Allow (${KEY('A')})`} className="ask-allow">
+          Allow <kbd>{KEY('A')}</kbd>
+        </button>
+        <button onClick={() => onReject(approvalId)} title={`Deny (${KEY('D')})`} className="ask-deny">
+          Deny <kbd>{KEY('D')}</kbd>
+        </button>
       </div>
     </div>
   );

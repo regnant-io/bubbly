@@ -106,7 +106,7 @@ export default {
         },
       },
       fontFamily: {
-        mono: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'],
+        mono: ['JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'],
       },
       /**
        * The whole type scale, stepped down one notch from Tailwind's defaults.

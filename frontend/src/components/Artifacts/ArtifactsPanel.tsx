@@ -179,7 +179,7 @@ function ArtifactDetail({ artifact, onBack }: { artifact: Artifact; onBack: () =
 
       {isOldVersion && (
         <div className="shrink-0 flex items-center gap-2 px-3 py-1 bg-warning-bg text-[11px] text-amber-agent border-b border-amber-agent/30">
-          Viewing v{version} — not the latest.
+          Viewing v{version} (an earlier version).
           <button onClick={() => setVersion(undefined)} className="underline">Show v{latest?.version}</button>
         </div>
       )}
@@ -251,8 +251,8 @@ export function ArtifactsPanel() {
         <FileBox size={22} className="text-text-dim/60" />
         <p className="text-xs">No artifacts yet.</p>
         <p className="text-[11px] leading-relaxed max-w-[230px]">
-          When the agent writes a document for you — a plan, a report, a page, a
-          diagram — it appears here with its full version history instead of
+          When the agent writes a document for you, such as a plan, a report, a page, a
+          diagram, it appears here with its full version history instead of
           filling up the chat.
         </p>
       </div>

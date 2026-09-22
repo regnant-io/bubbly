@@ -65,7 +65,7 @@ export function GitDiffCounter() {
         clean
           ? `${branch ?? 'git'} · working tree clean`
           : `${branch ?? 'git'} · ${filesChanged} file${filesChanged === 1 ? '' : 's'} changed, ` +
-            `+${insertions} −${deletions} — open the Changes panel`
+            `+${insertions} −${deletions}: open the Changes panel`
       }
       className="flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1
                  text-[11px] text-text-dim hover:text-text hover:border-border-bright

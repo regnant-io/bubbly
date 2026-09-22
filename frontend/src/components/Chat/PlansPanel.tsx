@@ -102,7 +102,7 @@ export function PlansPanel() {
         <ClipboardList size={22} className="text-text-dim/60" />
         <p className="text-xs">No plans yet.</p>
         <p className="text-[11px] leading-relaxed max-w-[220px]">
-          When the agent lays out steps for a task, each plan appears here — tagged MAIN or AGENT — so you can follow how the work was scoped.
+          When the agent lays out steps for a task, each plan appears here, tagged MAIN or AGENT, so you can follow how the work was scoped.
         </p>
       </div>
     );

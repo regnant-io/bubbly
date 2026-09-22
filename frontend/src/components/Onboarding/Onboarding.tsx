@@ -240,11 +240,11 @@ function WelcomeStep() {
       <h2 className="text-xl font-semibold text-text">Bubbly</h2>
       <p className="mt-2 text-sm text-text-muted leading-relaxed">
         A coding agent that runs on your machine. Your code stays local, and it asks
-        before it runs anything destructive. Three things to set up — about a minute.
+        before it runs anything destructive. Three things to set up in about a minute.
       </p>
       <div className="mt-4 grid grid-cols-2 gap-2 text-left">
-        <MiniFeature icon={<Sparkles size={14} />} title="Vibe mode" desc="Chat-driven building" />
-        <MiniFeature icon={<FileCode size={14} />} title="Editor mode" desc="Full IDE with AI on the right" />
+        <MiniFeature icon={<Sparkles size={14} />} title="Agent layout" desc="Conversation-first building" />
+        <MiniFeature icon={<FileCode size={14} />} title="Editor layout" desc="Full IDE with AI on the right" />
         <MiniFeature icon={<Bot size={14} />} title="Parallel agents" desc="Up to 4 working at once" />
         <MiniFeature icon={<RotateCcw size={14} />} title="Per-prompt revert" desc="Undo any prompt safely" />
       </div>
@@ -363,9 +363,9 @@ function TourStep() {
   const items = [
     { icon: <Sparkles size={15} />, title: 'Vibe vs Editor', desc: 'Switch layouts from the tabs at the top. Vibe is chat-first; Editor gives you a full code editor with the AI docked on the right.' },
     { icon: <FileCode size={15} />, title: 'Spec sessions', desc: 'For bigger work, the agent writes a spec (requirements → design → tasks) and executes it task-by-task, staying locked to that plan.' },
-    { icon: <Bot size={15} />, title: 'Parallel agents', desc: 'Independent work runs as up to 4 agents at once, each in its own lane — they never touch the same files.' },
+    { icon: <Bot size={15} />, title: 'Parallel agents', desc: 'Independent work runs as up to 4 agents at once, each in its own lane, so they never touch the same files.' },
     { icon: <TerminalIcon size={15} />, title: 'Real terminal', desc: 'A true integrated terminal. Dev servers run in the background so they never hang the agent, and prompts that need input are flagged.' },
-    { icon: <RotateCcw size={15} />, title: 'Per-prompt revert', desc: 'Every prompt is snapshotted. Hover any message to roll the workspace back to before it — and the chat clears to match.' },
+    { icon: <RotateCcw size={15} />, title: 'Per-prompt revert', desc: 'Every prompt is snapshotted. Hover any message to roll the workspace back to before it, and the chat clears to match.' },
   ];
   return (
     <div>

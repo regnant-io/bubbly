@@ -381,6 +381,7 @@ export interface WatcherRow {
 
 export type WSServerEvent =
   | { type: 'session_created'; sessionId: string }
+  | { type: 'thread_title'; sessionId: string; title: string }
   /** A run has BEGUN — from a user message, a watcher wake-up or a loop tick.
    *  This is what restores the Stop control for runs the user did not start. */
   | { type: 'run_started'; sessionId: string; trigger: 'user' | 'watcher' | 'loop' | 'resume'; detail?: string }

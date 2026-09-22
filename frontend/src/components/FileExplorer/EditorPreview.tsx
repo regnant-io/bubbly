@@ -249,7 +249,7 @@ export function EditorPreview({
         <div className="p-3">
           {invalid && (
             <div className="mb-2 px-2 py-1 rounded bg-error-bg text-[11px] text-red-agent">
-              Not valid JSON — showing the raw text.
+              Not valid JSON. Showing the raw text.
             </div>
           )}
           <MarkdownContent content={'```json\n' + pretty + '\n```'} />

@@ -212,6 +212,11 @@ interface AppState {
 
   // Session
   currentSessionId: string | null;
+  /** Changes whenever the window intentionally leaves/clears a thread. Used to
+   *  discard late events from the previous view, including pre-id new runs. */
+  threadViewKey: number;
+  /** AI-generated title for the thread currently visible in this window. */
+  currentThreadTitle: string | null;
   currentThreadType: 'vibe_coding' | 'spec_session';
   sessions: Session[];
   isRunning: boolean;
@@ -392,6 +397,7 @@ interface AppState {
   setExpandedFolders: (paths: string[]) => void;
 
   setCurrentSessionId: (id: string | null) => void;
+  setCurrentThreadTitle: (title: string | null) => void;
   setCurrentThreadType: (t: 'vibe_coding' | 'spec_session') => void;
   setSessions: (sessions: Session[]) => void;
   setIsRunning: (running: boolean) => void;
@@ -594,6 +600,8 @@ export const useStore = create<AppState>()(
       expandedFolders: [],
 
       currentSessionId: null,
+      threadViewKey: 0,
+      currentThreadTitle: null,
       currentThreadType: 'vibe_coding',
       sessions: [],
       isRunning: false,
@@ -744,6 +752,7 @@ export const useStore = create<AppState>()(
       setExpandedFolders: (paths) => set({ expandedFolders: paths }),
 
   setCurrentSessionId: (id) => set({ currentSessionId: id }),
+  setCurrentThreadTitle: (title) => set({ currentThreadTitle: title }),
   setCurrentThreadType: (t) => set({ currentThreadType: t }),
   setSessions: (sessions) => set({ sessions }),
   setIsRunning: (running) => set({ isRunning: running, ...(running ? {} : { runTrigger: null }) }),
@@ -1058,8 +1067,10 @@ export const useStore = create<AppState>()(
    * those belong to the person, not the conversation.
    */
   resetThreadState: () =>
-    set({
+    set((state) => ({
+      threadViewKey: state.threadViewKey + 1,
       messages: [],
+      currentThreadTitle: null,
       streamingMessageId: null,
       streamingContent: '',
       // A half-typed message for a conversation that no longer exists.
@@ -1101,8 +1112,16 @@ export const useStore = create<AppState>()(
       // Agent-owned terminals belong to the run that created them. A terminal
       // the USER opened is theirs and survives.
       terminals: get().terminals.filter((t) => t.origin === 'user'),
-      activeTerminalId: null,
-    }),
+      // ...and so does its selection. Clearing this unconditionally left the
+      // terminal panel saying "No terminal" over a live shell after every
+      // thread switch.
+      activeTerminalId: (() => {
+        const kept = get().terminals.filter((t) => t.origin === 'user');
+        const current = state.activeTerminalId;
+        if (current && kept.some((t) => t.id === current || t.clientRef === current)) return current;
+        return kept[0]?.id ?? null;
+      })(),
+    })),
 
   loadMessages: (messages) => set({ messages, streamingMessageId: null, streamingContent: '' }),
 

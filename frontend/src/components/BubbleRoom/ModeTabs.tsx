@@ -17,12 +17,12 @@ export function ModeTabs() {
   const { uiMode, setUiMode, modeSwitching } = useStore();
 
   const tabs: Array<{ id: 'vibe' | 'editor'; label: string; icon: React.ReactNode }> = [
-    { id: 'vibe', label: 'Agents', icon: <Sparkles size={12} /> },
-    { id: 'editor', label: 'Editor', icon: <FileCode size={12} /> },
+    { id: 'vibe', label: 'Agent', icon: <Sparkles size={13} /> },
+    { id: 'editor', label: 'Editor', icon: <FileCode size={13} /> },
   ];
 
   return (
-    <div className="flex items-center gap-0.5 h-7 box-border p-0.5 rounded-lg bg-surface-2 border border-border shrink-0" style={NO_DRAG}>
+    <div className="mode-tabs" role="group" aria-label="Layout" style={NO_DRAG}>
       {tabs.map((t) => {
         const active = uiMode === t.id;
         const switching = modeSwitching && active;
@@ -31,10 +31,9 @@ export function ModeTabs() {
             key={t.id}
             onClick={() => setUiMode(t.id)}
             disabled={modeSwitching}
-            className={`flex items-center gap-1.5 px-2.5 h-full rounded-md text-[11px] font-medium transition-colors ${
-              active ? 'bg-accent/20 text-accent-bright' : 'text-text-dim hover:text-text hover:bg-surface-3'
-            } ${modeSwitching ? 'cursor-wait' : ''}`}
-            title={t.id === 'vibe' ? 'Agents — conversational layout' : 'IDE layout — editor with AI on the right'}
+            aria-pressed={active}
+            className={`mode-tab ${modeSwitching ? 'cursor-wait' : ''}`}
+            title={t.id === 'vibe' ? 'Agent: conversation-first layout' : 'IDE layout: editor with AI on the right'}
           >
             {switching ? <Loader2 size={12} className="animate-spin" /> : t.icon}
             <span>{t.label}</span>

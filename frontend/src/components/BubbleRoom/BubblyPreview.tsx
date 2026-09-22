@@ -205,7 +205,7 @@ export function BubblyPreview() {
       // and the fix is different too — so say which one it is.
       setLoadError(
         `${previewUrl} is responding, but the page is still empty after ${MAX_HEAL_ATTEMPTS} reloads. ` +
-        `The dev server is probably serving a shell whose scripts are failing — check the terminal output and the browser console.`,
+        `The dev server is probably serving a shell whose scripts are failing: check the terminal output and the browser console.`,
       );
       return;
     }
@@ -393,7 +393,7 @@ export function BubblyPreview() {
       try { title = await wvTimeout(Promise.resolve(wv.getTitle?.()), 4000, 'getTitle'); } catch { /* ignore */ }
       let image: string | undefined;
       try { image = (await wvTimeout(wv.capturePage(), 6000, 'capturePage') as any).toDataURL(); } catch { /* best-effort frame */ }
-      return { ok: true, result: `Navigated to ${url}${title ? ` — ${title}` : ''}`, url: wv.getURL?.() ?? url, image };
+      return { ok: true, result: `Navigated to ${url}${title ? `: ${title}` : ''}`, url: wv.getURL?.() ?? url, image };
     }
 
     if (action === 'close') {
@@ -405,7 +405,7 @@ export function BubblyPreview() {
     if (!wv || typeof wv.executeJavaScript !== 'function') {
       // No page loaded in the visible webview — signal transport failure so the
       // backend falls back to the headless browser rather than dead-ending.
-      return { ok: false, reason: 'no_url', result: 'Nothing is loaded in the visible preview yet — open(url) first, or the agent can use the headless browser.' };
+      return { ok: false, reason: 'no_url', result: 'Nothing is loaded in the visible preview yet: open(url) first, or the agent can use the headless browser.' };
     }
 
     try {
@@ -428,16 +428,16 @@ export function BubblyPreview() {
             return { ok: true, result: `Clicked ${parsed.strategy ? `(${parsed.strategy}) ` : ''}${sel || (text ? `"${text}"` : `(${params.x},${params.y})`)}.`, image, url: wv.getURL?.() };
           }
           const cands = Array.isArray(parsed.candidates) && parsed.candidates.length
-            ? ` Closest matches — click one by text: ${parsed.candidates.map((c: any) => `"${c.label}" (${c.tag})`).join(' · ')}`
+            ? ` Closest matches: click one by text: ${parsed.candidates.map((c: any) => `"${c.label}" (${c.tag})`).join(' · ')}`
             : '';
-          return { ok: false, result: `Could not click ${sel || `"${text}"`} — ${parsed.status || 'not found'}.${cands}` };
+          return { ok: false, result: `Could not click ${sel || `"${text}"`}: ${parsed.status || 'not found'}.${cands}` };
         }
         case 'type': {
           const sel = params.selector ? String(params.selector) : '';
           const text = String(params.text ?? '');
           const res: any = await wvTimeout(wv.executeJavaScript(buildTypeJs({ selector: sel || undefined, text }), true), 8000, 'type');
           const status = typeof res === 'object' && res ? res.status : String(res);
-          return { ok: status === 'typed', result: status === 'typed' ? `Typed ${text.length} char(s).` : `Could not type — no editable field found${sel ? ` for "${sel}"` : ''}.` };
+          return { ok: status === 'typed', result: status === 'typed' ? `Typed ${text.length} char(s).` : `Could not type: no editable field found${sel ? ` for "${sel}"` : ''}.` };
         }
         case 'press': {
           const key = String(params.key ?? '');
@@ -528,7 +528,7 @@ export function BubblyPreview() {
     const url = normalize(addr);
     if (!url) return;
     if (isCurrentBubblyOrigin(url)) {
-      setLoadError('That address is Bubbly itself. Choose the project dev server instead — Bubbly will not embed itself recursively.');
+      setLoadError('That address is Bubbly itself. Choose the project dev server instead: Bubbly will not embed itself recursively.');
       return;
     }
     setLoadError(null);
@@ -778,7 +778,7 @@ export function BubblyPreview() {
           title={
             !workspacePath ? 'Set a workspace first'
             : browserMeta.checked && browserMeta.enabled ? 'Browser control is enabled for this project (.bubbly/browser-meta.json)'
-            : browserMeta.checked ? 'Browser control is disabled for this project — see .bubbly/browser-meta.json'
+            : browserMeta.checked ? 'Browser control is disabled for this project: see .bubbly/browser-meta.json'
             : 'Detect/enable browser control for this project'
           }
           className={`p-1.5 rounded transition-colors disabled:opacity-30 ${
@@ -830,7 +830,7 @@ export function BubblyPreview() {
           <div className="h-full overflow-auto flex items-start justify-center p-2">
             <img
               src={`/api/files/screenshot?file=${encodeURIComponent(previewFrame)}&seq=${previewFrameSeq}`}
-              alt="Bubbly Preview — the agent's browser"
+              alt="Bubbly Preview: the agent's browser"
               className="max-w-full h-auto rounded-lg border border-border shadow-lg"
             />
           </div>
@@ -897,7 +897,7 @@ export function BubblyPreview() {
               {isMessage(loadError) ? loadError : (
                 <>
                   Nothing is responding at <span className="font-mono text-text-muted break-all">{previewUrl}</span>.
-                  The dev server may not be running yet — start it, then retry.
+                  The dev server may not be running yet: start it, then retry.
                 </>
               )}
             </p>

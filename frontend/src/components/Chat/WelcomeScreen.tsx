@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { fetchUsageStats, type UsageStats } from '../../hooks/useApi';
 import { useStore } from '../../store';
 import { pickSuggestions, timeGreeting, type PromptSuggestion } from '../../utils/promptSuggestions';
+import { Search, Bug, Zap, Wrench, ClipboardList, Plus, ChevronDown, ArrowUpRight } from '../Shared/icons';
 import { BubblyMark } from '../Shared/BubblyMark';
-import { Search, Bug, Zap, Wrench, ClipboardList, Plus, ChevronDown } from '../Shared/icons';
 
 function formatCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
@@ -22,7 +22,7 @@ function heatClass(count: number, max: number): string {
 }
 
 function formatHour(h: number | null): string {
-  if (h == null) return '—';
+  if (h == null) return 'N/A';
   const period = h < 12 ? 'am' : 'pm';
   const hour = h % 12 === 0 ? 12 : h % 12;
   return `${hour}${period}`;
@@ -37,31 +37,8 @@ const CHIP_ICON: Record<PromptSuggestion['kind'], typeof Search> = {
   plan: ClipboardList,
 };
 
-const CHIP_TINT: Record<PromptSuggestion['kind'], string> = {
-  build: 'text-green-agent',
-  explore: 'text-blue-agent',
-  fix: 'text-red-agent',
-  test: 'text-violet-agent',
-  refactor: 'text-orange-agent',
-  plan: 'text-accent-bright',
-};
-
-/**
- * Activity, as a compact card in the corner.
- *
- * WHY IT MOVED AND SHRANK
- *
- * This used to be a full-width dashboard occupying everything above the
- * composer — six stat tiles and a ten-week heatmap, on the screen you see every
- * time you start a thread. That is a lot of furniture in front of the one thing
- * the screen is for, which is typing the first message. Nobody opens Bubbly to
- * read their own statistics.
- *
- * So it is a card in the top-right, collapsed to three numbers, expanding on
- * click for the rest. Present for whoever wants it, out of the way for everyone
- * else, and the greeting and the composer get the middle of the screen back.
- */
-function ActivityCard() {
+/** Real usage totals, with optional detail and a ten-week activity heatmap. */
+export function ActivityCard() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -83,27 +60,28 @@ function ActivityCard() {
   const cells = (stats?.heatmap ?? Array.from({ length: 70 }, () => ({ date: '', count: 0 }))).slice(-70);
 
   const headline: Array<{ label: string; value: string }> = [
-    { label: 'threads', value: stats ? String(stats.sessions) : '—' },
-    { label: 'messages', value: stats ? formatCompact(stats.messages) : '—' },
+    { label: 'threads', value: stats ? String(stats.sessions) : 'N/A' },
+    { label: 'messages', value: stats ? formatCompact(stats.messages) : 'N/A' },
     // The token count is a plain number. It used to be annotated with "×The
     // Hobbit", which is a joke that lands once and then sits on the screen
     // forever being neither informative nor funny.
-    { label: 'tokens', value: stats ? formatCompact(stats.totalTokens) : '—' },
+    { label: 'tokens', value: stats ? formatCompact(stats.totalTokens) : 'N/A' },
   ];
 
   const detail: Array<{ label: string; value: string }> = [
-    { label: 'Current streak', value: stats ? `${stats.currentStreak} days` : '—' },
-    { label: 'Longest streak', value: stats ? `${stats.longestStreak} days` : '—' },
-    { label: 'Active days', value: stats ? String(stats.activeDays) : '—' },
-    { label: 'Peak hour', value: stats ? formatHour(stats.peakHour) : '—' },
+    { label: 'Current streak', value: stats ? `${stats.currentStreak} days` : 'N/A' },
+    { label: 'Longest streak', value: stats ? `${stats.longestStreak} days` : 'N/A' },
+    { label: 'Active days', value: stats ? String(stats.activeDays) : 'N/A' },
+    { label: 'Peak hour', value: stats ? formatHour(stats.peakHour) : 'N/A' },
   ];
 
   return (
-    <div className="w-[260px] card bg-surface-1 overflow-hidden">
+    <div className="activity-summary" onKeyDown={(e) => { if (e.key === "Escape") setExpanded(false); }} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setExpanded(false); }}>
       <button
         onClick={() => setExpanded((v) => !v)}
         className="w-full px-3 py-2 flex items-center gap-2 hover:bg-surface-2 transition-colors"
         aria-expanded={expanded}
+        aria-label="Usage analytics"
       >
         <div className="flex-1 grid grid-cols-3 gap-1 text-left">
           {headline.map((t) => (
@@ -131,7 +109,7 @@ function ActivityCard() {
       </button>
 
       {expanded && (
-        <div className="border-t border-border px-3 py-2.5 space-y-2.5">
+        <div className="analytics-popover border border-border px-3 py-3 space-y-3">
           <div className="grid grid-cols-2 gap-y-1.5 gap-x-2">
             {detail.map((d) => (
               <div key={d.label} className="flex items-baseline justify-between gap-2">
@@ -188,65 +166,51 @@ export function WelcomeScreen({ greetingName }: { greetingName?: string }) {
   const [hello] = useState(() => timeGreeting());
   const suggestions = useMemo(() => pickSuggestions(seed, 4), [seed]);
 
+  const workspacePath = useStore(s => s.workspacePath);
+  const setActivePanel = useStore(s => s.setActivePanel);
+  const project = workspacePath?.split(/[\\/]/).filter(Boolean).pop();
+  const HINT: Record<PromptSuggestion['kind'], string> = {
+    build: 'Create something new',
+    fix: 'Find a path forward',
+    explore: 'Understand the codebase',
+    test: 'Ship with confidence',
+    plan: 'Turn intent into a plan',
+    refactor: 'Improve the foundations',
+  };
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Activity, top-right and out of the way. */}
-      <div className="shrink-0 flex justify-end pl-4 pr-14 pt-3">
-        <ActivityCard />
-      </div>
-
-      {/* The middle belongs to the greeting. */}
-      <div className="flex-1 min-h-0 flex flex-col justify-end">
-        <div className="mx-auto w-full max-w-3xl px-4 pb-3">
-          <div className="flex items-center gap-2.5 mb-3">
-            <BubblyMark size={26} animation="breathe" />
-            <p className="text-[13px] text-text-dim">
-              {hello}{greetingName ? `, ${greetingName}` : ''}
-            </p>
-          </div>
-
-          <h2 className="text-[26px] leading-tight font-semibold text-text mb-4">
-            What are we working on today?
-          </h2>
-
-          {/*
-            The chips arrive in reading order rather than all at once.
-
-            `key={seed}` on the row is doing real work: pressing "more ideas"
-            remounts it, so a new set of suggestions gets the same left-to-right
-            entrance the first set did. Without it React would reuse the same
-            four buttons and the labels would simply change in place, which
-            reads as a glitch rather than as an answer to the click.
-          */}
-          <div key={seed} className="motion-stagger flex flex-wrap items-center gap-2">
-            {suggestions.map((s) => {
-              const Icon = CHIP_ICON[s.kind];
-              return (
-                <button
-                  key={s.label}
-                  onClick={() => setChatDraft(s.prompt)}
-                  className="motion-rise group inline-flex items-center gap-2 rounded-lg border border-border bg-surface-1
-                             hover:bg-surface-2 hover:border-accent/40 px-3 py-2 text-[13px]
-                             text-text-muted hover:text-text
-                             transition-[background-color,border-color,color,transform] duration-150 ease-out
-                             hover:-translate-y-px active:translate-y-0 active:scale-[0.985]"
-                  title={s.prompt}
-                >
-                  <Icon size={14} className={`${CHIP_TINT[s.kind]} shrink-0 transition-transform duration-150 ease-out group-hover:scale-110`} />
-                  <span>{s.label}</span>
-                </button>
-              );
-            })}
-
-            <button
-              onClick={() => setSeed((s) => s + 1)}
-              className="text-[12px] text-text-dim hover:text-text px-2 py-2 transition-colors"
-              title="Show different suggestions"
-            >
-              more ideas
+    <div className="welcome-screen">
+      <div className="welcome-content motion-rise">
+        <div className="welcome-mark"><BubblyMark size={26} /></div>
+        <p className="welcome-greeting">{hello}{greetingName ? `, ${greetingName}` : ''}</p>
+        {project ? (
+          <h1>What should we build in <span>{project}</span>?</h1>
+        ) : (
+          <>
+            <h1>Pick a project to get started.</h1>
+            <button className="welcome-connect" onClick={() => setActivePanel('workspace')}>
+              <Plus size={14} /> Choose a workspace
             </button>
-          </div>
+          </>
+        )}
+        <div className="suggestion-heading">
+          <span>Try one of these</span>
+          <button onClick={() => setSeed(s => s + 1)}>Shuffle</button>
         </div>
+        <div key={seed} className="suggestion-grid motion-stagger">
+          {suggestions.map(s => {
+            const Icon = CHIP_ICON[s.kind];
+            return (
+              <button key={s.label} onClick={() => setChatDraft(s.prompt)} className="suggestion-item" title={s.prompt}>
+                <Icon size={16} />
+                <span><strong>{s.label}</strong><small>{HINT[s.kind]}</small></span>
+                <ArrowUpRight size={14} className="suggestion-arrow" />
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Usage belongs to the home state, not every conversation header. */}
+        <ActivityCard />
       </div>
     </div>
   );

@@ -108,12 +108,12 @@ export function useTheme() {
     // overlay follows whichever palette is active without this file having to
     // know anything about palettes.
     const styles = getComputedStyle(document.documentElement);
-    const bg = rgbToHex(styles.getPropertyValue('--surface-1').trim())
+    const bg = rgbToHex(styles.getPropertyValue('--bg-page').trim())
       ?? (resolvedTheme === 'dark' ? '#1a1a1d' : '#ffffff');
     const symbol = rgbToHex(styles.getPropertyValue('--text-muted').trim())
       ?? (resolvedTheme === 'dark' ? '#a1a1a8' : '#56565c');
     try {
-      api.setTitleBarOverlay({ color: bg, symbolColor: symbol, height: 36 });
+      api.setTitleBarOverlay({ color: bg, symbolColor: symbol, height: 40 });
     } catch { /* the overlay is cosmetic; never let it break the app */ }
   }, [resolvedTheme, palette]);
 }

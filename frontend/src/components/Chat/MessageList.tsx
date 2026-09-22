@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { ChatMessage } from '../../types';
-import { ToolIndicator } from '../Shared/ToolIndicator';
+import { BubblyMark } from '../Shared/BubblyMark';
+import { ToolIndicator, TOOL_ERROR_RE } from '../Shared/ToolIndicator';
 import { ToolStepGroup, type ToolStepSummary } from '../Shared/ToolStepGroup';
 import { ApprovalCard } from '../Shared/ApprovalCard';
 import { ApprovalPreparingCard } from '../Shared/ApprovalPreparingCard';
@@ -63,7 +64,7 @@ const UserMessage = React.memo(function UserMessage({ id, content, checkpointId 
     >
       <div className={`relative max-w-[85%] min-w-0 ${hasFooter ? 'pb-5' : ''}`}>
         <div
-          className="rounded-2xl rounded-br-md bg-accent/12 border border-accent/25 px-3.5 py-2.5
+          className="user-message rounded-2xl rounded-br-md bg-accent/12 border border-accent/25 px-3.5 py-2.5
                      text-[13.5px] leading-relaxed text-text whitespace-pre-wrap break-words
                      shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
         >
@@ -95,10 +96,10 @@ const AssistantMessage = React.memo(function AssistantMessage({ content, streami
   const { bind } = useAppContextMenu();
   return (
     <div
-      className={`${grouped ? 'mb-2' : 'mb-3'} motion-rise`}
+      className={`assistant-message ${grouped ? 'mb-1' : 'mb-2'} motion-rise`}
       {...bind([{ label: 'Copy message', onSelect: () => navigator.clipboard?.writeText(content), disabled: !content }])}
     >
-      <div className={`text-sm text-text leading-relaxed ${streaming ? 'typing-cursor' : ''}`}>
+      <div className={`text-text ${streaming ? 'typing-cursor' : ''}`}>
         {content ? (
           // Skip syntax highlighting while streaming — it's re-run on every
           // token otherwise, the dominant streaming cost. Highlight once done.
@@ -122,17 +123,14 @@ const AssistantMessage = React.memo(function AssistantMessage({ content, streami
 const NoticeMessage = React.memo(function NoticeMessage({ title, content }: { title: string; content: string }) {
   const [collapsed, setCollapsed] = React.useState(false);
   return (
-    <div className="mb-3 motion-rise rounded-xl border border-border bg-surface-2/60 overflow-hidden">
-      <button
-        onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3/50 transition-colors"
-      >
-        <span className="text-[9px] font-bold uppercase tracking-wider text-accent-bright shrink-0">Bubbly</span>
-        <span className="text-xs font-medium text-text flex-1 truncate">{title}</span>
-        <ChevronDown size={12} className={`shrink-0 text-text-dim transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+    <div className="note-card motion-rise">
+      <button onClick={() => setCollapsed((c) => !c)} className="note-head" aria-expanded={!collapsed}>
+        <span className="note-source">Bubbly</span>
+        <span className="note-title">{title}</span>
+        <ChevronDown size={13} className={`note-caret ${collapsed ? '-rotate-90' : ''}`} />
       </button>
       {!collapsed && (
-        <div className="px-3 pb-2.5 pt-0.5 text-[13px] text-text-muted max-h-96 overflow-y-auto">
+        <div className="note-body">
           <MarkdownContent content={content} />
         </div>
       )}
@@ -140,56 +138,40 @@ const NoticeMessage = React.memo(function NoticeMessage({ title, content }: { ti
   );
 });
 
+/** Transient progress text. One honest line, no bouncing dots. */
 function StatusMessage({ content }: { content: string }) {
   return (
-    <div className="flex items-center gap-2 py-1 mb-2 animate-fade-in">
-      <div className="flex gap-1">
-        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
-        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
-        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
-      </div>
-      <span className="text-xs text-text-dim">{content}</span>
+    <div className="status-line motion-appear">
+      <span className="status-dot motion-breathe" aria-hidden="true" />
+      <span>{content}</span>
     </div>
   );
 }
 
-function ErrorMessage({ content, recoverable, suggestions }: { 
-  content: string; 
+function ErrorMessage({ content, recoverable, suggestions }: {
+  content: string;
   recoverable?: boolean;
   suggestions?: string[];
 }) {
   const [expanded, setExpanded] = React.useState(false);
-  
+  const hasHelp = !!suggestions && suggestions.length > 0;
   return (
-    <div className="flex items-start gap-2 mb-3 animate-fade-in">
-      <AlertCircle size={14} className="text-red-agent mt-0.5 shrink-0" />
-      <div className="bg-error-bg border border-red-agent/30 rounded-xl px-3 py-2 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-sm text-red-agent flex-1">{content}</p>
-          {suggestions && suggestions.length > 0 && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="text-xs text-red-agent/70 hover:text-red-agent transition-colors shrink-0"
-              title={expanded ? 'Hide suggestions' : 'Show suggestions'}
-            >
-              {expanded ? '▼' : '▶'} Help
-            </button>
-          )}
-        </div>
-        
-        {expanded && suggestions && suggestions.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-red-agent/20">
-            <p className="text-xs text-red-agent/80 font-medium mb-1">
-              {recoverable ? 'Try these steps:' : 'Possible solutions:'}
-            </p>
-            <ul className="text-xs text-red-agent/70 space-y-1 list-disc list-inside">
-              {suggestions.map((suggestion, idx) => (
-                <li key={idx}>{suggestion}</li>
-              ))}
-            </ul>
-          </div>
+    <div className="error-card motion-rise" role="alert">
+      <div className="error-head">
+        <AlertCircle size={14} className="shrink-0" />
+        <p>{content}</p>
+        {hasHelp && (
+          <button onClick={() => setExpanded((e) => !e)} aria-expanded={expanded}>
+            {expanded ? 'Hide help' : 'What can I do?'}
+          </button>
         )}
       </div>
+      {expanded && hasHelp && (
+        <ul className="error-help">
+          {suggestions!.map((suggestion, idx) => <li key={idx}>{suggestion}</li>)}
+          {recoverable && <li className="error-help-note">Nothing was lost; you can send again.</li>}
+        </ul>
+      )}
     </div>
   );
 }
@@ -208,30 +190,21 @@ function buildToolCallMap(messages: ChatMessage[]): Map<string, string> {
 function ContextMigratedMessage({ reason, summary }: { reason: 'context_limit' | 'model_downgrade'; summary: string }) {
   const [expanded, setExpanded] = React.useState(false);
   const headline = reason === 'model_downgrade'
-    ? 'Continued in a fresh thread (smaller model context)'
-    : 'Continued in a fresh thread (context limit reached)';
+    ? 'Continued in a fresh thread: the new model has a smaller context'
+    : 'Continued in a fresh thread: the context limit was reached';
   return (
-    <div className="flex items-start gap-2 my-4 animate-fade-in">
-      <Info size={14} className="text-accent-bright mt-0.5 shrink-0" />
-      <div className="flex-1 bg-accent/8 border border-accent/25 rounded-xl px-3 py-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm text-text font-medium">{headline}</p>
-          <button
-            onClick={() => setExpanded((e) => !e)}
-            className="text-xs text-accent-bright hover:underline shrink-0"
-          >
-            {expanded ? 'Hide handoff' : 'Show handoff'}
-          </button>
-        </div>
-        <p className="text-xs text-text-dim mt-0.5">
-          Work continues automatically with a summary so nothing is lost.
-        </p>
-        {expanded && (
-          <div className="mt-2 pt-2 border-t border-accent/20 text-xs text-text-muted max-h-72 overflow-y-auto">
-            <MarkdownContent content={summary} />
-          </div>
-        )}
+    <div className="handoff motion-rise">
+      <div className="handoff-rule" aria-hidden="true" />
+      <div className="handoff-head">
+        <Info size={13} />
+        <span>{headline}</span>
+        <button onClick={() => setExpanded((e) => !e)} aria-expanded={expanded}>
+          {expanded ? 'Hide handoff' : 'Show handoff'}
+        </button>
       </div>
+      {expanded && (
+        <div className="handoff-body"><MarkdownContent content={summary} /></div>
+      )}
     </div>
   );
 }
@@ -323,6 +296,7 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
         diff={resultMsg?.diff}
         shortcutIndex={shortcutMap.get(msg.id)}
         progress={msg.progress}
+        live={terminalByCall.get(msg.callId)}
       />
     );
   };
@@ -335,7 +309,7 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
       tool: msg.tool,
       args: msg.args,
       done: !!resultMsg,
-      isError: /^(error|tool (execution )?failed|cannot|could not)|failed verification/i.test(result.trim()),
+      isError: TOOL_ERROR_RE.test(result.trim()),
       additions: resultMsg?.diff?.reduce((n, d) => n + (d.additions || 0), 0) ?? 0,
       deletions: resultMsg?.diff?.reduce((n, d) => n + (d.deletions || 0), 0) ?? 0,
       // What the agent said it was doing at the moment it made this call. The
@@ -374,6 +348,11 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
   }), [messages]);
 
   const toolResultMap = useMemo(() => buildToolCallMap(messages), [messages]);
+
+  const lastIsLive = useMemo(() => {
+    const last = visibleMessages[visibleMessages.length - 1];
+    return !!last && (last.type === 'assistant' || last.type === 'thinking') && !!last.streaming;
+  }, [visibleMessages]);
 
   /** Result message per tool call id — one pass instead of a find() per render. */
   const resultByCallId = useMemo(() => {
@@ -437,7 +416,44 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
    * Single calls are deliberately NOT grouped: wrapping one line in a header
    * that says "1 step" adds chrome and removes nothing.
    */
-  const { groupLead, groupedIds, contextMigratedInGroup } = useMemo(() => {
+  /**
+   * A COMMAND IS ONE STEP, NOT TWO.
+   *
+   * A running command streams its output as a separate `terminal` message, and
+   * that used to render as a second, heavier card right under the step that
+   * started it — the same command, twice, one of them in a red frame. The
+   * stream belongs INSIDE its step: it is what the step is doing. Each terminal
+   * is paired with the most recent command call that has not got one yet
+   * (matching the command text where it can), and is then drawn only there.
+   */
+  const terminalByCall = useMemo(() => {
+    const byCall = new Map<string, Extract<ChatMessage, { type: 'terminal' }>>();
+    const open: Array<Extract<ChatMessage, { type: 'tool_call' }>> = [];
+    for (const m of visibleMessages) {
+      if (m.type === 'tool_call' && (m.tool === 'run_command' || m.tool === 'run_background')) {
+        open.push(m);
+      } else if (m.type === 'terminal') {
+        const cmd = m.command.trim();
+        let idx = -1;
+        for (let k = open.length - 1; k >= 0; k--) {
+          const c = String(open[k].args?.command ?? '').trim();
+          if (c && (c === cmd || cmd.includes(c) || c.includes(cmd))) { idx = k; break; }
+        }
+        if (idx === -1 && open.length > 0) idx = open.length - 1;
+        if (idx !== -1) {
+          byCall.set(open[idx].callId, m);
+          open.splice(idx, 1);
+        }
+      }
+    }
+    return byCall;
+  }, [visibleMessages]);
+  const pairedTerminals = useMemo(
+    () => new Set([...terminalByCall.values()].map((t) => t.id)),
+    [terminalByCall],
+  );
+
+  const { groupLead, groupedIds, contextMigratedInGroup, trailingLead } = useMemo(() => {
     const lead = new Map<string, string[]>();
     const grouped = new Set<string>();
     const contextMigrated = new Map<string, string>(); // msg.id -> lead id
@@ -453,6 +469,8 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
           contextMigrated.set(m.id, currentLead);
         }
         // Don't break the group
+      } else if (m.type === 'terminal' && pairedTerminals.has(m.id)) {
+        // Drawn inside its command's step — see terminalByCall.
       } else if (m.type !== 'tool_result' && m.type !== 'status') {
         currentLead = null;
       }
@@ -467,8 +485,10 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
     // first call means a step is only ever added below the previous one.
     // ToolStepGroup renders a run of one with no header, so nothing is gained
     // by special-casing it here and the stability is worth everything.
-    return { groupLead: lead, groupedIds: grouped, contextMigratedInGroup: contextMigrated };
-  }, [visibleMessages, skipIds]);
+    // `currentLead` survives to here only if nothing but steps followed it:
+    // that is the burst a running agent is working in.
+    return { groupLead: lead, groupedIds: grouped, contextMigratedInGroup: contextMigrated, trailingLead: currentLead };
+  }, [visibleMessages, skipIds, pairedTerminals]);
 
   // Number shortcuts: map the LAST 9 tool calls to 1..9 (most recent = 1) so the
   // user can press a digit to expand/collapse a recent tool call.
@@ -537,11 +557,12 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
         </div>
       )}
 
-      <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-4 relative">
-      {/* Conversation Navigator - dots on left side, relative to chat container */}
+      {/* Prompt dots, OUTSIDE the scroller so they stay put while you scroll —
+          inside it they scrolled away with the first screen of the transcript. */}
       {messages.length > 0 && (
         <ConversationNavigator messages={messages} scrollToMessage={scrollToMessage} />
       )}
+      <div ref={scrollRef} className="chat-transcript h-full overflow-y-auto px-4 py-4 relative">
       
       <div className="mx-auto w-full max-w-2xl">
       {/* No empty state here: an empty transcript never reaches this component —
@@ -602,6 +623,7 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
                 key={msg.id}
                 steps={steps}
                 durationMs={groupDuration}
+                live={isRunning && msg.id === trailingLead}
                 trailing={contextMigratedMsgs.map((ctxMsg) => (
                   <ContextMigratedMessage
                     key={ctxMsg.id}
@@ -618,6 +640,7 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
             return null;
 
           case 'terminal':
+            if (pairedTerminals.has(msg.id)) return null;
             return (
               <TerminalOutput
                 key={msg.id}
@@ -716,7 +739,10 @@ export function MessageList({ messages, onApprove, onReject }: MessageListProps)
         detached pill fades out. It also means the auto-scroll that keeps the
         transcript pinned to the bottom keeps THIS in view for free.
       */}
-      {isRunning && <AgentPresence />}
+      {/* Only when nothing above is already saying so: a live trail names its
+          step, streaming prose has its cursor, reasoning has its own row. Two
+          liveness indicators for one run read as two things happening. */}
+      {isRunning && !trailingLead && !lastIsLive && <AgentPresence />}
       </div>
       </div>
 

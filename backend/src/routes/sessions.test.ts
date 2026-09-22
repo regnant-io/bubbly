@@ -1,6 +1,6 @@
 import request from 'supertest';
 import express from 'express';
-import { sessionsRouter } from './sessions';
+import { sessionsRouter, setThreadRunningProbe } from './sessions';
 import { getDb } from '../db/index';
 import { createSession, deleteThread } from '../session/manager';
 
@@ -48,6 +48,22 @@ describe('Thread Management API Endpoints', () => {
       expect(thread.threadName).toBe('Test Thread');
     });
     
+    it('reports each thread workspace and whether it is running right now', async () => {
+      // The sidebar shows a live dot for a thread working in the background;
+      // that must come from the orchestrator, not the stored status column.
+      setThreadRunningProbe((id) => id === testSessionId);
+      try {
+        const response = await request(testApp).get('/api/sessions/threads').expect(200);
+        const thread = response.body.find((t: { id: string }) => t.id === testSessionId);
+        expect(thread.running).toBe(true);
+        expect(thread.workspacePath).toBe('/test/workspace');
+        const other = response.body.find((t: { id: string }) => t.id !== testSessionId);
+        if (other) expect(other.running).toBe(false);
+      } finally {
+        setThreadRunningProbe(() => false);
+      }
+    });
+
     it('should filter threads by threadType', async () => {
       const response = await request(testApp)
         .get('/api/sessions/threads?threadType=vibe_coding')

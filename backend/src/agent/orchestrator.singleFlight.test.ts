@@ -44,8 +44,13 @@ jest.mock('../session/manager', () => ({
   getMessages: jest.fn(() => []),
   logAuditEvent: jest.fn(),
   updateFirstMessage: jest.fn(),
+  updateThreadName: jest.fn(),
   getSession: jest.fn(() => null),
   updateSessionSpecId: jest.fn(),
+}));
+
+jest.mock('./threadTitle', () => ({
+  generateThreadTitle: jest.fn(async () => 'Test thread'),
 }));
 
 jest.mock('./tools/specs', () => ({

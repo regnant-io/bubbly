@@ -27,8 +27,8 @@ export function PanelHeader({
 }) {
   return (
     <div className="shrink-0 border-b border-border">
-      <div className="flex items-center gap-2 px-3 h-9">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted truncate">
+      <div className="flex items-center gap-2 px-4 h-11">
+        <span className="text-xs font-medium tracking-normal text-text truncate">
           {title}
           {count !== undefined && count !== '' && (
             <span className="ml-1.5 font-normal normal-case tracking-normal text-text-dim tabular-nums">

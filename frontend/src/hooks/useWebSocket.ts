@@ -1,5 +1,6 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useStore } from '../store';
+import { openThread } from '../utils/threads';
 import { publishTerminalData, renameTerminalBuffer } from '../utils/terminalBus';
 import { fetchFileContent } from './useApi';
 import { runPreviewControl } from '../utils/previewController';
@@ -49,9 +50,13 @@ function refreshChangedTabs(files: Array<{ path: string }> | undefined): void {
 // port and host: the browser (served by the backend on :3001), the Vite dev
 // proxy (:3000 → /ws), and the Electron desktop shell (dynamic port).
 function resolveWsUrl(): string {
-  // In dev, Vite serves on :3000 and proxies /ws to the backend. In prod and
-  // in the desktop app the backend serves the UI on the same origin.
-  const isViteDev = window.location.port === '3000';
+  // In dev the Vite server (on a random port — see vite.config.ts) serves the
+  // UI and the backend listens on :3001; connect to it directly rather than
+  // through Vite's WS proxy, which drops the upgrade. This used to test for
+  // port 3000, which stopped matching when the dev port went random, so dev
+  // builds sat on "Disconnected". In prod and in the desktop app the backend
+  // serves the UI on the same origin.
+  const isViteDev = !!(import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV;
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = isViteDev
     ? `${window.location.hostname}:3001`
@@ -64,6 +69,8 @@ const WS_URL = resolveWsUrl();
 let wsInstance: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
+/** Mounted `useWebSocket()` callers sharing the socket above. */
+let liveInstances = 0;
 
 /** How long a message may wait for the socket before it is dropped instead of
  *  arriving long after the user has moved on. */
@@ -83,38 +90,115 @@ function calculateReconnectDelay(attempt: number): number {
   );
 }
 
-export function useWebSocket() {
-  const wsRef = useRef<WebSocket | null>(null);
-  // streamBufferRef holds the FULL text received so far this turn (the reveal
-  // "target"); shownLenRef is how many characters are currently painted. The
-  // reveal loop advances shownLen toward the target a little each frame, so the
-  // answer flows out smoothly word-by-word even when the network delivers it in
-  // big sentence-sized chunks.
-  const streamBufferRef = useRef('');
-  const shownLenRef = useRef(0);
-  const thinkBufferRef = useRef('');
-  /**
-   * Every answer token streamed during the CURRENT turn, across all of its
-   * segments. `streamBufferRef` is emptied each time a segment is painted, so
-   * it cannot answer "have we shown this already?" once a tool call has split
-   * the narration in two — which is exactly when the duplicate-bubble bug fired.
-   * Cleared when the turn ends.
-   */
-  const streamedThisTurnRef = useRef('');
-  const rafRef = useRef<number | null>(null);
-  const thinkRafRef = useRef<number | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('disconnected');
-  const [reconnectDelay, setReconnectDelay] = useState<number>(0);
+/*
+ * ONE SOCKET, ONE SET OF STREAM STATE.
+ *
+ * `useWebSocket()` is called by several components (the chat, the terminal
+ * dock, the watchers panel), but they all share the single module-level
+ * `wsInstance` — and `ws.onmessage` is bound to the `handleEvent` of whichever
+ * instance happened to CREATE the socket. Everything that handler reads must
+ * therefore be shared too. When these were per-instance `useRef`s:
+ *
+ *  - `sendChat` (chat panel) stamped the "new thread pending" marker on ITS
+ *    ref, while the handler (often the terminal or watchers instance) checked
+ *    its own, still-null one. `session_created` was discarded, the window
+ *    never learned the new thread's id, and every later event — all tagged
+ *    with that id — was dropped as belonging to another thread. The run went
+ *    on in the background and the thread looked hung until it was reopened.
+ *  - the creator's store subscription died with the component, so the handler
+ *    kept reading a frozen snapshot of the store;
+ *  - a reconnect gave only the creator the new socket, so the chat kept
+ *    sending into the closed one until its queue timed out.
+ */
+const wsRef: { current: WebSocket | null } = { current: null };
+/** Always the live store — never a snapshot owned by a component that may unmount. */
+const storeRef = { get current() { return useStore.getState(); } };
+// streamBufferRef holds the FULL text received so far this turn (the reveal
+// "target"); shownLenRef is how many characters are currently painted. The
+// reveal loop advances shownLen toward the target a little each frame, so the
+// answer flows out smoothly word-by-word even when the network delivers it in
+// big sentence-sized chunks.
+const streamBufferRef = { current: '' };
+const shownLenRef = { current: 0 };
+const thinkBufferRef = { current: '' };
+/**
+ * Every answer token streamed during the CURRENT turn, across all of its
+ * segments. `streamBufferRef` is emptied each time a segment is painted, so
+ * it cannot answer "have we shown this already?" once a tool call has split
+ * the narration in two — which is exactly when the duplicate-bubble bug fired.
+ * Cleared when the turn ends.
+ */
+const streamedThisTurnRef = { current: '' };
+// A new thread has no session id until the backend creates it. Pair that
+// creation event with the exact clean-slate view that sent the prompt, so a
+// late event cannot pull a window back into a thread it already left.
+const pendingNewThreadViewRef: { current: number | null } = { current: null };
+/**
+ * What was sent to start a new thread that has not been named yet. If the
+ * socket drops in that gap, `session_created` went to the dead socket and the
+ * window never learns the thread's id — it would sit on "Working" forever
+ * while the run carries on server-side. On reconnect this is how the thread
+ * is found again (see recoverNewThread).
+ */
+const pendingNewThreadRef: { current: { sentAt: number; message: string } | null } = { current: null };
 
-  // Use refs for store access to avoid re-creating callbacks
-  const storeRef = useRef(useStore.getState());
+async function recoverNewThread(pending: { sentAt: number; message: string }, viewKey: number): Promise<void> {
+  const norm = (t: string) => t.replace(/\s+/g, ' ').trim().slice(0, 60);
+  const want = norm(pending.message);
+  // The server may still be creating it; look twice before giving up.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const rows = await fetch('/api/sessions/threads?limit=10').then((r) => r.json()) as Array<{ id: string; createdAt: string; firstMessage?: string }>;
+      const found = rows.find((t) => Date.parse(t.createdAt) >= pending.sentAt - 5000 && norm(t.firstMessage ?? '').startsWith(want.slice(0, 40)));
+      const store = useStore.getState();
+      if (store.currentSessionId || store.threadViewKey !== viewKey) return; // the user moved on
+      if (found) {
+        pendingNewThreadRef.current = null;
+        pendingNewThreadViewRef.current = null;
+        await openThread(found.id, { force: true });
+        return;
+      }
+    } catch { /* try again below */ }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  // It never reached the server. Say so, and give the words back.
+  const store = useStore.getState();
+  if (store.currentSessionId || store.threadViewKey !== viewKey) return;
+  pendingNewThreadRef.current = null;
+  pendingNewThreadViewRef.current = null;
+  store.setIsRunning(false);
+  store.stopRunTimer();
+  store.addMessage({
+    id: nanoid(),
+    type: 'error',
+    content: 'The connection dropped before this thread could start. Your message is back in the composer — send it again.',
+    recoverable: true,
+    timestamp: Date.now(),
+  });
+  if (!store.chatDraft.trim()) store.setChatDraft(pending.message);
+}
+const rafRef: { current: number | null } = { current: null };
+const thinkRafRef: { current: number | null } = { current: null };
+
+type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
+/** Connection status is a property of the shared socket, so every instance
+ *  must see it change — not only the one whose callbacks the socket holds. */
+let sharedStatus: { status: ConnectionStatus; delay: number } = { status: 'disconnected', delay: 0 };
+const statusListeners = new Set<(s: typeof sharedStatus) => void>();
+function publishStatus(patch: Partial<typeof sharedStatus>): void {
+  sharedStatus = { ...sharedStatus, ...patch };
+  for (const l of statusListeners) l(sharedStatus);
+}
+
+export function useWebSocket() {
+  const [{ status: connectionStatus, delay: reconnectDelay }, setStatus] = useState(sharedStatus);
   useEffect(() => {
-    // Subscribe to store changes and keep ref current
-    const unsub = useStore.subscribe((state) => {
-      storeRef.current = state;
-    });
-    return unsub;
+    statusListeners.add(setStatus);
+    setStatus(sharedStatus);
+    return () => { statusListeners.delete(setStatus); };
   }, []);
+  const setConnectionStatus = (status: ConnectionStatus) => publishStatus({ status });
+  const setReconnectDelay = (delay: number) => publishStatus({ delay });
 
   // Smooth typewriter reveal. Rather than snapping the message to whatever text
   // has arrived (which makes the answer lurch sentence-by-sentence), we advance
@@ -209,6 +293,26 @@ export function useWebSocket() {
 
   const handleEvent = useCallback((event: WSServerEvent) => {
     const store = storeRef.current;
+
+    const eventSessionId = (event as WSServerEvent & { sessionId?: string }).sessionId;
+    if (event.type === 'session_created') {
+      if (store.currentSessionId && store.currentSessionId !== event.sessionId) return;
+      if (!store.currentSessionId && pendingNewThreadViewRef.current !== store.threadViewKey) {
+        // The backend briefly associated this socket with the late-created
+        // thread. Reassert the clean-slate view so watcher wake-ups stay away.
+        const live = wsRef.current;
+        if (live?.readyState === WebSocket.OPEN) {
+          live.send(JSON.stringify({ type: 'focus_session', sessionId: null }));
+        }
+        return;
+      }
+      pendingNewThreadViewRef.current = null;
+      pendingNewThreadRef.current = null;
+    } else if (eventSessionId && store.currentSessionId !== eventSessionId) {
+      // Events are durable in their own thread. They must never paint into the
+      // thread this window happens to be showing now.
+      return;
+    }
 
     // --- Parallel agent lanes ---
     // Any event tagged with a `lane` belongs to a parallel worker. Route its
@@ -314,6 +418,13 @@ export function useWebSocket() {
         // at the point in the transcript where it landed — not where it was
         // typed, which would claim it was seen earlier than it was.
         store.deliverPendingMessage(event.message);
+        break;
+
+      case 'thread_title':
+        store.setCurrentThreadTitle(event.title);
+        store.setSessions(store.sessions.map((session) => (
+          session.id === event.sessionId ? { ...session, threadName: event.title } : session
+        )));
         break;
 
       case 'queued_messages_returned': {
@@ -921,24 +1032,24 @@ export function useWebSocket() {
         reconnectTimer = null;
       }
       
-      // Restore session on reconnect
+      // Restore the open thread on reconnect: events may have been missed
+      // while the socket was down, so the transcript is rebuilt from what the
+      // server stored. Through openThread, NOT a bare loadMessages — the API
+      // returns raw rows, and loading those directly produced 100 messages
+      // with no `type`, i.e. a blank transcript after every reconnect.
       if (reconnectAttempts > 0) {
         const sessionId = storeRef.current.currentSessionId;
-        if (sessionId) {
-          try {
-            const response = await fetch(`/api/sessions/${sessionId}/messages`);
-            if (response.ok) {
-              const data = await response.json();
-              if (data.messages && Array.isArray(data.messages)) {
-                storeRef.current.loadMessages(data.messages);
-              }
-            }
-          } catch (error) {
-            console.error('[WS] Error restoring session:', error);
-          }
+        // Half a streamed segment from before the drop must not be glued onto
+        // the rebuilt transcript's next delta.
+        streamBufferRef.current = '';
+        shownLenRef.current = 0;
+        thinkBufferRef.current = '';
+        if (sessionId) void openThread(sessionId, { force: true });
+        else if (pendingNewThreadRef.current && storeRef.current.isRunning) {
+          void recoverNewThread(pendingNewThreadRef.current, storeRef.current.threadViewKey);
         }
       }
-      
+
       reconnectAttempts = 0;
       setReconnectDelay(0);
     };
@@ -971,10 +1082,15 @@ export function useWebSocket() {
     };
   }, [handleEvent]); // Only depends on handleEvent which is stable
 
-  // Connect once on mount
+  // Connect once on mount. The reconnect timer belongs to the shared socket,
+  // so only the LAST instance to unmount may cancel it — closing the watchers
+  // panel mid-backoff used to cancel the retry and strand the app offline.
   useEffect(() => {
+    liveInstances++;
     connect();
     return () => {
+      liveInstances--;
+      if (liveInstances > 0) return;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -1016,6 +1132,8 @@ export function useWebSocket() {
         console.warn('[WS] Ignoring send: a run is already in flight for this thread');
         return;
       }
+      pendingNewThreadViewRef.current = sessionId ? null : store.threadViewKey;
+      pendingNewThreadRef.current = sessionId ? null : { sentAt: Date.now(), message: message };
       store.setIsRunning(true);
       store.startRunTimer();
       store.setCurrentPhase(null);
@@ -1070,6 +1188,8 @@ export function useWebSocket() {
         console.warn('[WS] Ignoring workflow: a run is already in flight for this thread');
         return;
       }
+      pendingNewThreadViewRef.current = sessionId ? null : store.threadViewKey;
+      pendingNewThreadRef.current = sessionId ? null : { sentAt: Date.now(), message: label };
       store.setIsRunning(true);
       store.startRunTimer();
       store.setCurrentPhase(null);

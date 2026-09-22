@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import { sessionsRouter } from './routes/sessions';
+import { sessionsRouter, setThreadRunningProbe } from './routes/sessions';
 import { filesRouter } from './routes/files';
 import { settingsRouter } from './routes/settings';
 import { mcpRouter } from './routes/mcp';
@@ -87,6 +87,7 @@ app.use((_req, res, next) => {
 
 // API routes
 app.use('/api/sessions', sessionsRouter);
+setThreadRunningProbe(isSessionRunning);
 app.use('/api/files', filesRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/mcp', mcpRouter);
@@ -174,11 +175,28 @@ function send(ws: WebSocket, event: WSServerEvent): void {
   }
 }
 
+/** Attach thread identity at the transport boundary. Most domain events do not
+ * need it internally, but every renderer needs it to reject stale streams. */
+function sendForSession(ws: WebSocket, sessionId: string, event: WSServerEvent): void {
+  send(ws, { ...event, sessionId } as WSServerEvent);
+}
+
 /** Broadcast the live watcher table to every window on that thread. */
 function pushWatcherTable(sessionId?: string | null): void {
   const rows = watchers.describeAll();
-  const targets = sessionId ? socketsWatching(sessionId) : [...socketSessions.keys()];
-  for (const sock of targets) send(sock, { type: 'watchers_updated', watchers: rows });
+  if (sessionId) {
+    const ownRows = rows.filter((row) => row.sessionId === sessionId);
+    for (const sock of socketsWatching(sessionId)) {
+      sendForSession(sock, sessionId, { type: 'watchers_updated', watchers: ownRows });
+    }
+    return;
+  }
+  for (const [sock, focusedSessionId] of socketSessions) {
+    sendForSession(sock, focusedSessionId, {
+      type: 'watchers_updated',
+      watchers: rows.filter((row) => row.sessionId === focusedSessionId),
+    });
+  }
 }
 
 /**
@@ -228,7 +246,7 @@ watchers.setSettleListener((notice) => {
   // panel should show that the thing finished regardless.
   if (sessionId) {
     for (const sock of socketsWatching(sessionId)) {
-      send(sock, { type: 'watcher_settled', id: notice.id, label, outcome, detail } as WSServerEvent);
+      sendForSession(sock, sessionId, { type: 'watcher_settled', id: notice.id, label, outcome, detail } as WSServerEvent);
     }
   }
   pushWatcherTable(sessionId);
@@ -296,7 +314,7 @@ watchers.setSettleListener((notice) => {
     onEvent: (event) => {
       // Re-resolve the audience on every event: a window can be closed or
       // switched to another thread mid-run.
-      for (const sock of socketsWatching(sessionId)) send(sock, event);
+      for (const sock of socketsWatching(sessionId)) sendForSession(sock, sessionId, event);
     },
   }).catch((err) => {
     logger.error('Wake-up run failed', { sessionId, error: err instanceof Error ? err.message : String(err) });
@@ -453,6 +471,12 @@ wss.on('connection', (ws) => {
       // finish would never resume, which is the main way this is used.
       if (msg.sessionId) socketSessions.set(ws, msg.sessionId);
       else socketSessions.delete(ws);
+      // Reopening a thread that is still working in the background: say so,
+      // or the window shows a finished-looking transcript with no Stop button
+      // while steps keep landing underneath it.
+      if (msg.sessionId && isSessionRunning(msg.sessionId)) {
+        sendForSession(ws, msg.sessionId, { type: 'run_started', sessionId: msg.sessionId, trigger: 'resume' });
+      }
       return;
     }
 
@@ -577,6 +601,8 @@ wss.on('connection', (ws) => {
       // Dispatch (non-blocking, streams events back over the socket). This is
       // the one place that decides between a plain message, a workflow and a
       // loop — see agent/chatDispatch.
+      let runSessionId = msg.sessionId;
+      let heldFlightKey = flightKey;
       dispatchChat({
         sessionId: msg.sessionId,
         message: msg.message,
@@ -588,8 +614,25 @@ wss.on('connection', (ws) => {
         onEvent: (event) => {
           // A brand-new thread gets its id here — that is the first moment we
           // can associate this socket with it.
-          if (event.type === 'session_created') socketSessions.set(ws, event.sessionId);
-          send(ws, event);
+          if (event.type === 'session_created') {
+            runSessionId = event.sessionId;
+            socketSessions.set(ws, event.sessionId);
+            // The "new thread is starting" guard exists only for the gap before
+            // an id exists. Held for the whole run, it refused every other new
+            // thread from this window until the first one had FINISHED.
+            chatInFlight.delete(heldFlightKey);
+            heldFlightKey = event.sessionId;
+            chatInFlight.add(heldFlightKey);
+          }
+          const eventSessionId = event.type === 'session_created'
+            ? event.sessionId
+            : ((event as WSServerEvent & { sessionId?: string }).sessionId ?? runSessionId);
+          if (!eventSessionId) { send(ws, event); return; }
+          // The window that started the run, plus any other window that has the
+          // thread open (a second window, or this one after switching away and
+          // back — see focus_session).
+          const audience = new Set<WebSocket>([ws, ...socketsWatching(eventSessionId)]);
+          for (const sock of audience) sendForSession(sock, eventSessionId, event);
         },
       }).catch((err) => {
         logger.error('Agent loop error', { error: err instanceof Error ? err.message : String(err) });
@@ -597,7 +640,7 @@ wss.on('connection', (ws) => {
       }).finally(() => {
         // Released on EVERY exit path — a run that threw must not leave the
         // thread permanently unable to accept another message.
-        chatInFlight.delete(flightKey);
+        chatInFlight.delete(heldFlightKey);
       });
     }
   });
@@ -716,7 +759,7 @@ function announceReady(): void {
     port: actualPort,
     httpUrl: `http://localhost:${actualPort}`,
     wsUrl: `ws://localhost:${actualPort}/ws`,
-    dbPath: '~/.bubbly/bubbly.db',
+    dbPath: process.env.BUBBLY_DB_PATH || '~/.bubbly/bubbly.db',
     platform: process.platform,
     arch: process.arch,
     nodeVersion: process.version,
@@ -729,7 +772,7 @@ function announceReady(): void {
 
   console.log(`\n🫧  Bubbly backend running on http://localhost:${actualPort}`);
   console.log(`   WebSocket: ws://localhost:${actualPort}/ws`);
-  console.log(`   DB: ~/.bubbly/bubbly.db`);
+  console.log(`   DB: ${process.env.BUBBLY_DB_PATH || "~/.bubbly/bubbly.db"}`);
   // Deliberately no "Shell:" line. The shell is now chosen PER COMMAND (see
   // agent/tools/shellDialect), so naming one here would be wrong more often
   // than it is right.

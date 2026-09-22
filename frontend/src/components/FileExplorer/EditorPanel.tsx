@@ -289,7 +289,7 @@ export function EditorPanel() {
                 readOnly: false,
                 minimap: { enabled: false },
                 fontSize: Number(settings?.editorFontSize ?? '13') || 13,
-                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                fontFamily: "'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace",
                 lineNumbers: 'on',
                 scrollBeyondLastLine: false,
                 automaticLayout: true,

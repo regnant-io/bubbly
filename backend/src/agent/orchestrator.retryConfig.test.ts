@@ -40,7 +40,12 @@ jest.mock('../session/manager', () => ({
   getMessages: jest.fn(() => []),
   logAuditEvent: jest.fn(),
   updateFirstMessage: jest.fn(),
+  updateThreadName: jest.fn(),
   getSession: jest.fn(() => null),
+}));
+
+jest.mock('./threadTitle', () => ({
+  generateThreadTitle: jest.fn(async () => 'Test thread'),
 }));
 
 describe('Orchestrator - Ollama Retry Configuration', () => {

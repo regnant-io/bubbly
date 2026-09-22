@@ -73,10 +73,11 @@ export function ConversationNavigator({ messages, scrollToMessage }: Conversatio
     return () => observer.disconnect();
   }, [conversationPairs]);
 
-  if (conversationPairs.length === 0) return null;
+  // One prompt has nowhere to navigate to.
+  if (conversationPairs.length < 2) return null;
 
   return (
-    <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-8 flex flex-col gap-3 py-4">
+    <div className="conversation-nav absolute left-3 top-1/2 -translate-y-1/2 z-[2] flex flex-col gap-2.5 py-4">
       {conversationPairs.map((pair, index) => (
         <button
           key={pair.promptId}

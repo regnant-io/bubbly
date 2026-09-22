@@ -4,10 +4,10 @@ import { Cpu, Sparkles, HardDrive, ChevronDown, Check, RefreshCw } from '../Shar
 import type { Provider } from '../../types';
 
 function providerIcon(p: Provider, size = 13) {
-  if (p === 'claude') return <Cpu size={size} className="text-orange-400" />;
-  if (p === 'gemini') return <Sparkles size={size} className="text-blue-400" />;
-  if (p === 'openrouter') return <Sparkles size={size} className="text-purple-400" />;
-  return <HardDrive size={size} className="text-emerald-400" />;
+  if (p === 'claude') return <Cpu size={size} className="text-text-dim" />;
+  if (p === 'gemini') return <Sparkles size={size} className="text-text-dim" />;
+  if (p === 'openrouter') return <Sparkles size={size} className="text-text-dim" />;
+  return <HardDrive size={size} className="text-text-dim" />;
 }
 
 /**
@@ -41,7 +41,7 @@ export function ModelSelector() {
         type="button"
         onClick={() => { setOpen((v) => !v); if (!open) refresh(); }}
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-text-dim hover:text-text hover:bg-surface-3 transition-colors max-w-[200px]"
-        title={activeModelSupportsVision ? 'Switch model' : 'Switch model — this model has no vision support (can\'t read screenshots/images)'}
+        title={activeModelSupportsVision ? 'Switch model' : 'Switch model: this model has no vision support (can\'t read screenshots/images)'}
       >
         {providerIcon(provider)}
         <span className="truncate">{label}</span>

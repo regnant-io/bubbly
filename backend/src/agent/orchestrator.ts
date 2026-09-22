@@ -183,11 +183,13 @@ import {
   getMessages,
   logAuditEvent,
   updateFirstMessage,
+  updateThreadName,
   updateSessionSpecId,
   getSession,
   saveSessionPlan,
   recordSessionChanges,
 } from '../session/manager';
+import { generateThreadTitle } from './threadTitle';
 import { readSpec } from './tools/specs';
 import { buildRuntimeStateBlock, buildHandoffStateNote } from './runtimeState';
 import { getAllSettings } from '../db/index';
@@ -1069,6 +1071,24 @@ export async function runAgentLoop(params: {
       sessionId, threadType: params.threadType, specId: params.specId, source: params.source?.kind ?? 'local',
     });
     params.onEvent({ type: 'session_created', sessionId });
+
+    // Name the thread ALONGSIDE the run, never ahead of it. This used to be
+    // awaited here, which held every new thread blank for as long as the title
+    // call took (up to its 20s timeout on a slow or rate-limited provider) —
+    // it read as a hung thread. The title lands whenever it is ready.
+    const titledSessionId = sessionId;
+    void generateThreadTitle({
+      config: agentConfig,
+      message: params.userMessage,
+      signal: AbortSignal.timeout(20_000),
+    }).then((title) => {
+      updateThreadName(titledSessionId, title);
+      params.onEvent({ type: 'thread_title', sessionId: titledSessionId, title });
+    }).catch((err) => {
+      logger.warn('Could not store the thread title', {
+        sessionId: titledSessionId, error: err instanceof Error ? err.message : String(err),
+      });
+    });
     
     // Log session creation to audit events
     logAuditEvent({
@@ -1077,6 +1097,23 @@ export async function runAgentLoop(params: {
       resultSummary: `Session created with ${provider}/${model} (${params.threadType})`,
     });
   } else {
+    // A thread belongs to the workspace it was started in. The client sends
+    // whatever folder the WINDOW has open, so reopening an older thread from
+    // another project and replying used to run the agent against the wrong
+    // codebase — with a history full of paths that do not exist there. The
+    // recorded workspace wins when it is still reachable (a remote one always
+    // is; a local folder must still exist).
+    const recorded = getSession(sessionId)?.workspacePath;
+    if (recorded && recorded !== params.workspacePath) {
+      const { isRemotePath } = await import('../workspace/registry');
+      const reachable = isRemotePath(recorded) || (await import('fs')).existsSync(recorded);
+      if (reachable) {
+        logger.warn('Resuming a thread in its own workspace rather than the window\'s', {
+          sessionId, recorded, requested: params.workspacePath,
+        });
+        params.workspacePath = recorded;
+      }
+    }
     existingMessages = sanitizeHistory(getMessages(sessionId));
     logger.info('Resuming existing session', { sessionId, existingMessageCount: existingMessages.length });
   }

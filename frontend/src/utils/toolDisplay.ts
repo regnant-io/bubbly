@@ -249,8 +249,10 @@ function targetFor(tool: string, args: Record<string, unknown> = {}): string {
     case 'rename_symbol':
       return args.old_name && args.new_name ? `${args.old_name} → ${args.new_name}` : '';
     case 'list_directory':
-    case 'get_file_tree':
-      return args.path ? String(args.path) : 'workspace';
+    case 'get_file_tree': {
+      const p = String(args.path ?? '').trim();
+      return !p || p === '.' || p === './' ? 'project root' : p;
+    }
     case 'search_in_files':
       return args.query ? `"${clamp(String(args.query), 30)}"` : '';
     case 'run_command':
@@ -522,4 +524,76 @@ export function segmentByPhase<T extends {
     const followsFailure = !!previous && previous.steps.some((st) => st.isError);
     return { phase: { label: inferPhase(run.steps, followsFailure), source: 'inferred' as const }, steps: run.steps };
   });
+}
+
+
+/* ------------------------------------------------------------------------- *
+ * BURST SUMMARY
+ *
+ * The folded head of a burst reads as a tally of WORK, in the order a reader
+ * cares about it: what was looked at, what was changed, what was run. Files
+ * are counted once however many times they were touched — "Edited 3 files" is
+ * the fact; that one of them was edited four times is detail for the open view.
+ * ------------------------------------------------------------------------- */
+
+const EXPLORE_TOOLS = new Set([
+  'read_file', 'read_files', 'get_file_outline',
+  'get_repo_map', 'find_symbol', 'find_references', 'gather_context', 'read_config',
+]);
+const LIST_TOOLS = new Set(['list_directory', 'get_file_tree']);
+const SEARCH_TOOLS = new Set(['search', 'search_in_files', 'grep_search', 'find_files']);
+const CHANGE_TOOLS = new Set(['write_file', 'edit_file', 'append_file', 'delete_file', 'write_config', 'rename_symbol', 'create_directory']);
+const COMMAND_TOOLS = new Set(['run_command', 'run_background', 'send_process_input']);
+const BROWSER_TOOLS = new Set(['browser_control', 'computer_control']);
+const PROCESS_TOOLS = new Set(['get_process_output', 'list_processes', 'stop_process']);
+const PLAN_TOOLS = new Set(['update_plan', 'add_sub_tasks', 'update_task_status', 'update_spec_status', 'add_spec_task']);
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+export function describeBurst(
+  steps: Array<{ tool: string; args?: Record<string, unknown> }>,
+): string {
+  const read = new Set<string>();
+  const listed = new Set<string>();
+  const changed = new Set<string>();
+  let searches = 0;
+  let commands = 0;
+  let browser = 0;
+  let waits = 0;
+  let logs = 0;
+  let planned = false;
+  let other = 0;
+  for (const s of steps) {
+    const tool = s.tool.replace(/^function:/, '');
+    const path = typeof s.args?.path === 'string' ? s.args.path : null;
+    if (tool === 'set_phase') continue;
+    if (tool === 'read_files' && Array.isArray(s.args?.paths)) {
+      for (const p of s.args!.paths as unknown[]) read.add(String(p));
+    } else if (EXPLORE_TOOLS.has(tool)) read.add(path ?? `${tool}:${read.size}`);
+    else if (LIST_TOOLS.has(tool)) listed.add(path ?? '.');
+    else if (SEARCH_TOOLS.has(tool)) searches++;
+    else if (CHANGE_TOOLS.has(tool)) changed.add(path ?? `${tool}:${changed.size}`);
+    else if (COMMAND_TOOLS.has(tool)) commands++;
+    else if (BROWSER_TOOLS.has(tool)) browser++;
+    else if (tool === 'watch') waits++;
+    else if (PROCESS_TOOLS.has(tool)) logs++;
+    else if (PLAN_TOOLS.has(tool)) planned = true;
+    else other++;
+  }
+  const parts: string[] = [];
+  if (read.size) parts.push(`read ${plural(read.size, 'file')}`);
+  if (listed.size) parts.push(`listed ${plural(listed.size, 'folder')}`);
+  if (searches) parts.push(plural(searches, 'search', 'searches'));
+  if (changed.size) parts.push(`edited ${plural(changed.size, 'file')}`);
+  if (commands) parts.push(`ran ${plural(commands, 'command')}`);
+  if (browser) parts.push(plural(browser, 'browser step'));
+  if (logs) parts.push(`checked output ${logs === 1 ? 'once' : `${logs} times`}`);
+  if (waits) parts.push(plural(waits, 'wait'));
+  if (planned) parts.push('updated the plan');
+  if (other) parts.push(plural(other, 'other step'));
+  if (parts.length === 0) return 'Worked';
+  const sentence = parts.join(', ');
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }

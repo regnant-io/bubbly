@@ -9,6 +9,56 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { ConnectionStatus } from '../Shared/ConnectionStatus';
 import { ErrorBoundary } from '../Shared/ErrorBoundary';
 import { TranscriptSkeleton } from '../Shared/SkeletonLoader';
+import { GitCompare, SquareTerminal, AppWindow } from '../Shared/icons';
+import type { RightContextId } from '../../store';
+
+/**
+ * The conversation's header: what this thread is, whether it is working, and
+ * the three tools people reach for mid-conversation — the changes so far, a
+ * terminal, the running app — one click away instead of inside a menu. Every
+ * other panel stays in the overflow menu.
+ */
+function ChatHeading({ title, hasThread, isRunning }: { title: string | null; hasThread: boolean; isRunning: boolean }) {
+  const rightStack = useStore((s) => s.rightStack);
+  const toggleRightContext = useStore((s) => s.toggleRightContext);
+  const pendingDiffs = useStore((s) => s.pendingDiffs);
+  const additions = pendingDiffs.reduce((n, d) => n + (d.additions || 0), 0);
+  const deletions = pendingDiffs.reduce((n, d) => n + (d.deletions || 0), 0);
+  const tool = (id: RightContextId, label: string, icon: React.ReactNode, extra?: React.ReactNode) => (
+    <button
+      className="heading-tool"
+      onClick={() => toggleRightContext(id)}
+      aria-pressed={rightStack.includes(id)}
+      title={label}
+      aria-label={label}
+    >
+      {icon}
+      {extra}
+    </button>
+  );
+  return (
+    <header className="chat-heading">
+      <div className="chat-heading-main">
+        <span className={`chat-heading-title ${hasThread && !title ? 'is-pending' : ''}`}>
+          {hasThread ? (title || 'Untitled thread') : 'New thread'}
+        </span>
+        {isRunning && <span className="chat-heading-live"><i aria-hidden="true" />Working</span>}
+      </div>
+      <div className="chat-heading-actions">
+        {tool('diff', 'Changes', <GitCompare size={15} />, (additions > 0 || deletions > 0) && (
+          <span className="flex gap-1">
+            {additions > 0 && <span className="is-add">+{additions}</span>}
+            {deletions > 0 && <span className="is-del">−{deletions}</span>}
+          </span>
+        ))}
+        {tool('terminal', 'Terminal', <SquareTerminal size={15} />)}
+        {tool('preview', 'Preview', <AppWindow size={15} />)}
+        <span className="heading-sep" aria-hidden="true" />
+        <PanelDropdownMenu />
+      </div>
+    </header>
+  );
+}
 
 export function ChatPanel() {
   const {
@@ -21,6 +71,7 @@ export function ChatPanel() {
     pendingQuestion,
     currentThreadType,
     threadLoading,
+    currentThreadTitle,
   } = useStore();
 
   const { sendChat, sendWorkflow, sendApprove, sendReject, sendStop, sendAnswer, sendQueuedMessage, connectionStatus, reconnectDelay } = useWebSocket();
@@ -178,14 +229,15 @@ export function ChatPanel() {
    */
   return (
     <>
-      <div className="flex flex-col h-full relative">
+      <div className={`chat-surface flex flex-col h-full relative ${isNewSession ? 'chat-surface--empty' : ''}`}>
         {/* Connection Status Indicator */}
         <ConnectionStatus status={connectionStatus} reconnectDelay={reconnectDelay} />
 
-        {/* 3-dot menu in top right corner for accessing panels */}
-        <div className="absolute top-3 right-3 z-10">
-          <PanelDropdownMenu />
-        </div>
+        <ChatHeading
+          title={currentSessionId ? currentThreadTitle : null}
+          hasThread={!!currentSessionId}
+          isRunning={isRunning}
+        />
 
       {/*
         Three states, and the order matters.
@@ -287,7 +339,7 @@ export function ChatPanel() {
           !workspacePath
             ? 'Set a workspace path in Settings…'
             : isRunning
-            ? 'Agent is working — type to add an instruction, or ⏹ to stop'
+            ? 'Agent is working: type to add an instruction, or ⏹ to stop'
             : isNewSession
             ? `Message Bubbly in ${pendingThreadType === 'vibe_coding' ? 'Vibe' : 'Spec'} mode…`
             : 'Message Bubbly…'

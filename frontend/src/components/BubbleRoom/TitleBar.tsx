@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { isDesktop } from '../../hooks/useDesktop';
 import { useStore } from '../../store';
-import { Search } from '../Shared/icons';
+import { ArrowLeft, ArrowRight, PanelLeft, Search } from '../Shared/icons';
 import { ModeTabs } from './ModeTabs';
 import { ThemeToggle } from '../Shared/ThemeToggle';
 
@@ -102,41 +102,48 @@ export function TitleBar() {
   return (
     <div
       ref={barRef}
-      className="flex items-center h-9 shrink-0 bg-surface-1 select-none relative z-40"
+      className="desktop-titlebar"
       style={DRAG}
     >
-      {/* Brand */}
-      <div className="flex items-center gap-2 pl-3 pr-2 shrink-0">
-        <img src="/bubble.svg" alt="" className="w-4 h-4" />
+      {/* Window navigation, aligned over the sidebar like a browser's. */}
+      <div className="flex items-center gap-0.5" style={NO_DRAG}>
+        <button
+          onClick={() => store.setLeftHidden(!store.leftHidden)}
+          className={`titlebar-icon ${store.leftHidden ? '' : 'titlebar-icon--active'}`}
+          title={store.leftHidden ? 'Show sidebar (Ctrl+B)' : 'Hide sidebar (Ctrl+B)'}
+          aria-label={store.leftHidden ? 'Show sidebar' : 'Hide sidebar'}
+          aria-pressed={!store.leftHidden}
+        >
+          <PanelLeft size={15} />
+        </button>
+        <button onClick={() => window.history.back()} className="titlebar-icon" title="Back" aria-label="Back">
+          <ArrowLeft size={15} />
+        </button>
+        <button onClick={() => window.history.forward()} className="titlebar-icon" title="Forward" aria-label="Forward">
+          <ArrowRight size={15} />
+        </button>
       </div>
 
-      {/* Menus */}
-      <div className="flex items-center" style={NO_DRAG}>
+      {/* Menus: the OS menu bar is hidden, so File / View / Help live here. */}
+      <div className="flex items-center ml-1" style={NO_DRAG}>
         {menus.map((menu) => (
           <div key={menu.label} className="relative">
             <button
               onClick={() => setOpenMenu((m) => (m === menu.label ? null : menu.label))}
               onMouseEnter={() => { if (openMenu) setOpenMenu(menu.label); }}
-              className={`px-2.5 h-9 text-xs transition-colors ${
-                openMenu === menu.label ? 'bg-surface-3 text-text' : 'text-text-muted hover:bg-surface-2 hover:text-text'
-              }`}
+              className={`titlebar-menu ${openMenu === menu.label ? 'is-open' : ''}`}
             >
               {menu.label}
             </button>
             {openMenu === menu.label && (
-              <div className="absolute top-full left-0 mt-px w-60 rounded-lg border border-border bg-surface-1 shadow-xl py-1 z-50">
+              <div className="titlebar-dropdown motion-pop">
                 {menu.items.map((entry, i) => (
                   <React.Fragment key={entry.label}>
-                    <button
-                      onClick={() => runEntry(entry)}
-                      className="w-full flex items-center justify-between gap-4 px-3 py-1.5 text-xs text-left text-text-muted hover:bg-accent/15 hover:text-text transition-colors"
-                    >
+                    <button onClick={() => runEntry(entry)} className="titlebar-dropdown-item">
                       <span>{entry.label}</span>
-                      {entry.hint && <span className="text-[10px] text-text-dim">{entry.hint}</span>}
+                      {entry.hint && <kbd>{entry.hint}</kbd>}
                     </button>
-                    {entry.separatorAfter && i < menu.items.length - 1 && (
-                      <div className="my-1 border-t border-border" />
-                    )}
+                    {entry.separatorAfter && i < menu.items.length - 1 && <div className="titlebar-dropdown-sep" />}
                   </React.Fragment>
                 ))}
               </div>
@@ -145,28 +152,24 @@ export function TitleBar() {
         ))}
       </div>
 
-      {/* Center search → command palette */}
-      <div className="flex-1 flex justify-center items-center gap-3 px-4" style={NO_DRAG}>
+      <div className="flex-1 flex justify-center min-w-0" style={NO_DRAG}>
         <ModeTabs />
-        <button
-          onClick={() => store.setCommandPaletteOpen(true)}
-          className="flex items-center gap-2 w-full max-w-md h-7 box-border px-3 rounded-md bg-surface-2 border border-border hover:border-border-bright text-text-dim hover:text-text-muted transition-colors"
-          title="Search & commands (Ctrl+K)"
-        >
-          <Search size={12} className="shrink-0" />
-          <span className="text-[11px] truncate flex-1 text-left">
-            {store.workspacePath ? `Search ${store.workspacePath.split(/[\\/]/).filter(Boolean).pop()}…` : 'Search & run commands…'}
-          </span>
-          <kbd className="text-[9px] border border-border rounded px-1 py-px shrink-0">Ctrl K</kbd>
-        </button>
       </div>
 
-      {/* Theme toggle (sun/moon) */}
-      <div className="flex items-center pr-1 shrink-0" style={NO_DRAG}>
+      <div className="flex items-center gap-1" style={NO_DRAG}>
+        <button
+          onClick={() => store.setCommandPaletteOpen(true)}
+          className="titlebar-search"
+          title="Search & commands (Ctrl+K)"
+        >
+          <Search size={13} className="shrink-0" />
+          <span>Search</span>
+          <kbd>Ctrl K</kbd>
+        </button>
         <ThemeToggle />
       </div>
 
-      {/* Right spacer reserves room for native window controls (overlay). */}
+      {/* Room for the native window controls drawn by the title-bar overlay. */}
       <div style={{ width: 140 }} className="shrink-0" />
     </div>
   );

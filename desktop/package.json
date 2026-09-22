@@ -107,6 +107,9 @@
       "include": "build/installer.nsh",
       "warningsAsErrors": false
     },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable-${arch}.${ext}"
+    },
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "mac": {
       "target": [

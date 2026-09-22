@@ -45,16 +45,15 @@ export function DelegationCard({
   const phaseLabel = PHASE_LABEL[phase] ?? phase;
 
   return (
-    <div className="my-3 animate-fade-in">
+    <div className="my-3 motion-rise">
       <div
-        className={`rounded-xl border bg-surface-1 overflow-hidden ${
-          isError ? 'border-red-agent/40' : isDone ? 'border-green-agent/40' : 'border-accent/40'
-        }`}
+        className="rounded-[10px] border border-border overflow-hidden"
+        style={{ background: 'var(--canvas)' }}
       >
         {/* Header */}
         <button
           onClick={() => setExpanded((e) => !e)}
-          className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-2/50 transition-colors"
+          className="w-full flex items-center gap-2 px-3 h-10 text-left hover:bg-surface-2 transition-colors"
         >
           <span
             className={`shrink-0 ${
@@ -70,7 +69,7 @@ export function DelegationCard({
             )}
           </span>
           <Bot size={14} className="text-text-dim shrink-0" />
-          <span className="text-xs font-medium text-text truncate flex-1">
+          <span className="text-[13px] font-medium text-text truncate flex-1">
             {instruction || 'Delegated task'}
           </span>
           <span

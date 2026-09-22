@@ -55,7 +55,7 @@ export function WatchersPanel() {
         <Eye size={18} className="text-text-dim/50" />
         <p className="text-sm text-text-dim">Nothing is being waited on.</p>
         <p className="text-[11px] text-text-dim/70 max-w-[240px] leading-relaxed">
-          When the agent starts something slow — an install, a build, a test run — the wait it
+          When the agent starts something slow: an install, a build, a test run: the wait it
           registers appears here with a countdown.
         </p>
       </div>
@@ -67,7 +67,7 @@ export function WatchersPanel() {
       {live.length > 0 && (
         <section>
           <h3 className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-text-dim">
-            Waiting — {live.length}
+            Waiting: {live.length}
           </h3>
           <ul className="space-y-1.5">
             {live.map((w) => (
@@ -82,7 +82,7 @@ export function WatchersPanel() {
                     </p>
                     {w.detached && (
                       <p className="mt-1 text-[10px] text-accent-bright/90 leading-snug">
-                        Running in the background — this thread starts itself again when it settles.
+                        Running in the background: this thread starts itself again when it settles.
                       </p>
                     )}
                   </div>

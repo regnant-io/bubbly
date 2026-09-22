@@ -8,7 +8,7 @@ import { useStore } from './store';
 import { fetchSettings, fetchSessions } from './hooks/useApi';
 import { useTheme } from './hooks/useTheme';
 import { useDesktop } from './hooks/useDesktop';
-import { loadThread } from './utils/messageReconstruction';
+import { openThread } from './utils/threads';
 import type { Settings, Session } from './types';
 
 const VALID_PANELS = ['chat', 'threads', 'files', 'specs', 'audit', 'settings', 'workspace'];
@@ -36,61 +36,8 @@ export default function App() {
   useDesktop();
 
   // Open a thread by id: load + reconstruct its messages, set type, sync URL.
-  const openThreadById = async (threadId: string) => {
-    const store = useStore.getState();
-    if (store.currentSessionId === threadId && store.messages.length > 0) return;
-    // Say so BEFORE the fetch: the gap between clicking a thread and its history
-    // arriving is exactly the window in which the wrong screen would otherwise
-    // show, and it is longest for the long conversations that most need this.
-    store.setThreadLoading(true);
-    try {
-      const { messages, plan, sessionChanges, error } = await loadThread(threadId);
-      if (error) throw new Error(error);
-      store.clearMessages();
-      store.clearDiffs();
-      store.loadMessages(messages);
-      // Restore persisted plan + file-change list so a refresh reopens the
-      // thread exactly as it was.
-      store.setAgentPlan(plan ?? []);
-      if (sessionChanges && sessionChanges.length > 0) store.addDiff(sessionChanges);
-      store.setCurrentSessionId(threadId);
-      // Resolve the thread type from the loaded session list for a persistent badge.
-      const sess = store.sessions.find((s) => s.id === threadId);
-      if (sess?.threadType) store.setCurrentThreadType(sess.threadType);
-      store.setActivePanel('chat');
-
-      /*
-       * IS THIS THREAD ACTUALLY RUNNING RIGHT NOW?
-       *
-       * `isRunning` is a property of the window, not of the thread, and threads
-       * outlive the window looking at them: with the app living in the system
-       * tray, a turn started an hour ago may still be going. Opening it without
-       * asking got it wrong in both directions — a running thread showed a Send
-       * button whose message the server would refuse, and a thread opened after
-       * a different one had been running showed a Stop button for a run that
-       * was not happening here.
-       *
-       * `activeSessions` on the backend is the only truth about this, and
-       * /api/status is how it is asked. Failing quietly leaves the composer
-       * usable, which is the safer of the two wrong answers.
-       */
-      try {
-        const status = await fetch('/api/status').then((r) => r.json()) as {
-          running?: Array<{ id: string }>;
-        };
-        const live = (status.running ?? []).some((t) => t.id === threadId);
-        store.setIsRunning(live);
-        if (live) store.beginRun('resume');
-        else store.stopRunTimer();
-      } catch {
-        store.setIsRunning(false);
-      }
-    } catch (err) {
-      console.warn('Could not open thread from URL:', err);
-    } finally {
-      useStore.getState().setThreadLoading(false);
-    }
-  };
+  // Open a thread by id — the single opener lives in utils/threads.
+  const openThreadById = (threadId: string) => openThread(threadId);
 
   /*
    * A thread picked from the system-tray menu.

@@ -37,7 +37,7 @@ const PROFILES: ProfileSpec[] = [
     id: 'guarded',
     label: 'Guarded',
     blurb: 'Ask before changing anything',
-    detail: 'Every file write and every command waits for you. Right for unfamiliar code, production repositories, or anything you would not want undone.',
+    detail: 'Confirm file edits and commands.',
     requireApprovalForWrites: true,
     requireApprovalForShell: true,
   },
@@ -45,7 +45,7 @@ const PROFILES: ProfileSpec[] = [
     id: 'balanced',
     label: 'Balanced',
     blurb: 'Ask before running commands',
-    detail: 'File edits go ahead — they are visible in Changes and revertible per prompt. Shell commands still wait, because a command can reach outside the workspace.',
+    detail: 'Allow edits; confirm commands.',
     requireApprovalForWrites: false,
     requireApprovalForShell: true,
   },
@@ -53,7 +53,7 @@ const PROFILES: ProfileSpec[] = [
     id: 'autonomous',
     label: 'Autonomous',
     blurb: 'Work without interrupting',
-    detail: 'Nothing waits for you. The right choice for a long unattended run — and only in a workspace where the worst case is acceptable, since destructive commands are still blocked but a bad one can still be run.',
+    detail: 'Run edits and commands without prompts.',
     requireApprovalForWrites: false,
     requireApprovalForShell: false,
   },
@@ -124,7 +124,7 @@ export function PermissionPicker() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={saving}
-        title={`Permissions: ${spec.label} — ${spec.blurb}`}
+        title={`Permissions: ${spec.label}: ${spec.blurb}`}
         className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${
           current === 'autonomous'
             ? 'text-amber-agent hover:bg-surface-3'
@@ -137,7 +137,7 @@ export function PermissionPicker() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full mb-2 right-0 z-50 w-[320px] card bg-surface-1 shadow-xl overflow-hidden">
+        <div className="absolute bottom-full mb-2 left-0 z-50 w-[320px] card bg-surface-1 shadow-xl overflow-hidden">
           <div className="px-3 py-2 border-b border-border">
             <p className="text-[11px] font-medium text-text">What may the agent do without asking?</p>
           </div>
@@ -166,7 +166,7 @@ export function PermissionPicker() {
 
           <div className="px-3 py-1.5 border-t border-border">
             <p className="text-[10px] text-text-dim leading-snug">
-              Genuinely destructive commands are refused at every level, and every prompt takes a checkpoint you can revert to.
+              Destructive commands stay blocked. Prompts remain revertible.
             </p>
           </div>
         </div>

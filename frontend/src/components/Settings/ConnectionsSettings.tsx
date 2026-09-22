@@ -181,7 +181,7 @@ export function ConnectionsSettings() {
           </button>
         </div>
         <p className="text-[11px] text-text-dim mb-2 leading-relaxed">
-          A thread opened against a host runs everything there — reads, writes, searches, commands, terminals.
+          A thread opened against a host runs everything there: reads, writes, searches, commands, terminals.
           Nothing is copied to this machine.
         </p>
 
@@ -288,14 +288,14 @@ export function ConnectionsSettings() {
               {vault.backend === 'os-keychain' && 'Protected by your operating system’s keychain.'}
               {vault.backend === 'passphrase' && 'Protected by your passphrase.'}
               {vault.backend === 'key-file' && 'Protected by a key file in ~/.bubbly, readable only by your user.'}
-              {vault.backend === 'locked' && 'Locked — enter your passphrase to use saved credentials.'}
+              {vault.backend === 'locked' && 'Locked. Enter your passphrase to use saved credentials.'}
             </span>
             <span className="ml-auto text-text-dim">{vault.storedCount} stored</span>
           </div>
           {vault.backend === 'key-file' && (
             <p className="text-[11px] text-text-dim leading-relaxed">
               A key file protects your credentials from other accounts on this machine and from a stray backup.
-              It does not protect them from someone who already has your own read access — set a passphrase if
+              It does not protect them from someone who already has your own read access. Set a passphrase if
               you need that.
             </p>
           )}
@@ -555,7 +555,7 @@ function ForgeForm({
           className="input w-full text-xs mt-0.5 font-mono"
           value={token}
           onChange={(e) => setToken(e.target.value)}
-          placeholder={forge === 'github' ? 'ghp_… — optional' : 'glpat-… — optional'}
+          placeholder={forge === 'github' ? 'ghp_… (optional)' : 'glpat-… (optional)'}
           autoComplete="off"
         />
       </label>

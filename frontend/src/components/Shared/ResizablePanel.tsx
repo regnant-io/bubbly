@@ -54,10 +54,15 @@ export function ResizablePanel({
         if (!isNaN(parsed)) return Math.max(minSize, Math.min(parsed, getMaxSize()));
       }
     }
-    return defaultSize;
+    return Math.max(minSize, Math.min(defaultSize, getMaxSize()));
   };
 
-  const [size, setSize] = useState<number>(getInitialSize);
+  const [size, setSizeState] = useState<number>(getInitialSize);
+  // The drag handlers are attached once per drag and would otherwise close over
+  // the size from BEFORE it — which is what mouseup used to persist, so a
+  // resized panel came back at its old width after every restart.
+  const sizeRef = useRef(size);
+  const setSize = (next: number) => { sizeRef.current = next; setSizeState(next); };
   const [isResizing, setIsResizing] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const startPosRef = useRef<number>(0);
@@ -93,7 +98,7 @@ export function ResizablePanel({
     document.removeEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    if (storageKey) localStorage.setItem(storageKey, String(size));
+    if (storageKey) localStorage.setItem(storageKey, String(sizeRef.current));
   };
 
   const handleDoubleClick = () => {

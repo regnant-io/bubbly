@@ -26,9 +26,9 @@
     "test": "cd backend && npm test",
     "typecheck": "cd backend && npx tsc --noEmit && cd ../frontend && npx tsc --noEmit && cd ../cli && npx tsc --noEmit",
     "build:cli": "cd cli && npm run build",
-    "dist:win": "npm run build:all && npm run icons && cd desktop && npm run dist:win",
-    "dist:mac": "npm run build:all && npm run icons && cd desktop && npm run dist:mac",
-    "dist:linux": "npm run build:all && npm run icons && cd desktop && npm run dist:linux"
+    "dist:win": "npm run build:all && npm run icons && cd desktop && npx electron-builder --win",
+    "dist:mac": "npm run build:all && npm run icons && cd desktop && npx electron-builder --mac",
+    "dist:linux": "npm run build:all && npm run icons && cd desktop && npx electron-builder --linux"
   },
   "license": "MIT",
   "engines": {

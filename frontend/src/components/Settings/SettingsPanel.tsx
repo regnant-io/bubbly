@@ -214,7 +214,7 @@ export function SettingsPanel() {
   const showSaveBar = category !== 'mcp' && category !== 'skills';
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="settings-surface flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
         <SettingsIcon size={14} className="text-accent-bright" />
         <span className="text-sm font-medium text-text">Settings</span>
@@ -482,7 +482,7 @@ export function SettingsPanel() {
                   <Field
                     label={form.ollamaAutoNumCtx !== 'false' ? 'Minimum context window (num_ctx)' : 'Context window (num_ctx)'}
                     hint={form.ollamaAutoNumCtx !== 'false'
-                      ? 'Auto-sizing is on, so this acts as a FLOOR — the model\'s own maximum is used when it\'s larger. The effective value is shown below.'
+                      ? 'Auto-sizing is on, so this acts as a FLOOR; the model\'s own maximum is used when it\'s larger. The effective value is shown below.'
                       : 'Ollama\'s default (~4096) is often too small and causes responses to cut off. 16384+ recommended.'}
                   >
                     <input type="number" min="4096" max="131072" step="2048" className="input"
@@ -636,7 +636,7 @@ export function SettingsPanel() {
                 <Section title="Notifications">
                   <Toggle
                     label="Desktop notifications"
-                    hint="Get an OS notification when a run finishes, fails, or needs your approval — only while Bubbly is in the background."
+                    hint="Get an OS notification when a run finishes, fails, or needs your approval, only while Bubbly is in the background."
                     checked={form.desktopNotifications !== 'false'}
                     onChange={(v) => update('desktopNotifications', v)}
                   />
@@ -661,7 +661,7 @@ export function SettingsPanel() {
                     <span className="text-xs text-text-dim">
                       {isDesktop()
                         ? 'Delivered through Windows notifications.'
-                        : 'In the browser this uses web notifications — your browser may ask for permission.'}
+                        : 'In the browser this uses web notifications. Your browser may ask for permission.'}
                     </span>
                   </div>
                 </Section>
@@ -711,7 +711,7 @@ export function SettingsPanel() {
                 <div className="mb-3 flex items-start gap-2 p-3 rounded-lg bg-info-bg border border-blue-agent/30">
                   <AlertCircle size={15} className="text-blue-agent shrink-0 mt-0.5" />
                   <p className="text-xs text-text-muted leading-relaxed">
-                    Gives the agent its <strong className="text-text">own dedicated browser window</strong> to navigate and operate — it never
+                    Gives the agent its <strong className="text-text">own dedicated browser window</strong> to navigate and operate. It never
                     touches your mouse or screen. The window is visible so you can watch it work, with a Bubbly cursor showing where it acts.
                     Safer than computer control (it's sandboxed to its own browser). Requires Playwright:
                     {' '}<code className="font-mono">npm i playwright</code> then <code className="font-mono">npx playwright install chromium</code>.
@@ -785,7 +785,7 @@ function EffectiveContext({ resolved, loading, model }: { resolved: ResolvedCont
 
       {failed ? (
         <p className="text-xs text-amber-agent mt-1.5">
-          {resolved?.error ?? 'Could not resolve'} — the agent will fall back to your configured value.
+          {resolved?.error ?? 'Could not resolve'}. The agent will fall back to your configured value.
         </p>
       ) : resolved?.ok ? (
         <>

@@ -14,43 +14,22 @@ import { ResizablePanel } from '../Shared/ResizablePanel';
 import { CommandPalette } from '../Shared/CommandPalette';
 import { TitleBar } from './TitleBar';
 import { useStore } from '../../store';
-import { loadThread } from '../../utils/messageReconstruction';
-import { fetchPromptCheckpoints } from '../../hooks/useApi';
+import { openThread } from '../../utils/threads';
 import { isDesktop } from '../../hooks/useDesktop';
 import { ModeTabs } from './ModeTabs';
 import { ThemeToggle } from '../Shared/ThemeToggle';
-import { PanelLeft } from '../Shared/icons';
-import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowLeft, ArrowRight, PanelLeft } from '../Shared/icons';
 
-/**
- * Conventional IDE shell layout (VS Code-style):
- *
- *   ┌──────────────────────────────────────────────┐
- *   │ title bar (drag region + brand)               │
- *   ├──┬───────────────┬────────────────────┬───────┤
- *   │A │  primary      │   main area        │ right │
- *   │c │  sidebar      │   (editor/chat)    │ panel │
- *   │t │  (tree/etc)   │   [3-dot menu]     │       │
- *   │  │               │                    │       │
- *   │  │               │                    │       │
- *   ├──┴───────────────┴────────────────────┴───────┤
- *   │ status bar                                     │
- *   └────────────────────────────────────────────────┘
- *
- * Panels (Preview, Terminal, Background, Changes, Tasks, Plans, Artifacts, 
- * Specs, Audit) are accessed via a 3-dot dropdown menu in the top right of
- * the chat UI, maximizing vertical screen space.
- * 
- * Flush panels with hairline borders — dense and predictable, not floating cards.
- */
+/** Unified workspace canvas. Only the right-hand tool stack uses raised cells. */
 export function BubbleRoom() {
   const {
-    activePanel, setActivePanel, setCurrentSessionId, clearMessages, loadMessages,
+    activePanel,
     rightStack,
     leftHidden, setLeftHidden,
     navHidden, setNavHidden,
     uiMode, modeSwitching,
   } = useStore();
+  const [sidebarPeek, setSidebarPeek] = React.useState(false);
   const rightPanelOpen = rightStack.length > 0;
 
   // Ctrl/Cmd+B toggles the whole left region (VS Code's muscle memory).
@@ -69,43 +48,7 @@ export function BubbleRoom() {
     return () => window.removeEventListener('keydown', onKey);
   }, [setLeftHidden, setNavHidden]);
 
-  const handleThreadSelect = async (threadId: string) => {
-    // Flagged before the fetch so the conversation column shows a transcript
-    // skeleton for the gap, rather than the previous thread or the new-thread
-    // welcome card. See AppState.threadLoading.
-    useStore.getState().setThreadLoading(true);
-    try {
-      const { messages, plan, sessionChanges, error } = await loadThread(threadId);
-      if (error) throw new Error(error);
-      const store = useStore.getState();
-      // Wipe ALL of the previous thread's state first, then load this thread's.
-      // Without the full reset, a field the old thread set but the new one
-      // doesn't (a pending question, a worker plan, a preview frame) leaked in.
-      store.resetThreadState();
-      loadMessages(messages);
-      // Restore persisted thread metadata so the plan strip and the Changes
-      // panel reflect this thread exactly, even after a refresh.
-      store.setAgentPlan(plan ?? []);
-      if (sessionChanges && sessionChanges.length > 0) store.addDiff(sessionChanges);
-      setCurrentSessionId(threadId);
-      setActivePanel('chat');
-      // Restore per-prompt revert buttons for this loaded thread by linking the
-      // workspace's prompt checkpoints back to their user messages.
-      try {
-        const ws = store.workspacePath;
-        if (ws) {
-          const cps = await fetchPromptCheckpoints(ws, threadId);
-          store.setPromptCheckpoints(cps.map((c) => ({ id: c.id, prompt: c.prompt, createdAt: c.createdAt })));
-          store.linkCheckpointsToMessages(cps.map((c) => ({ id: c.id, prompt: c.prompt, createdAt: c.createdAt })));
-        }
-      } catch { /* checkpoints are best-effort */ }
-    } catch (err) {
-      console.error('Failed to load thread:', err);
-      alert(err instanceof Error ? err.message : 'Failed to load thread');
-    } finally {
-      useStore.getState().setThreadLoading(false);
-    }
-  };
+  const handleThreadSelect = (threadId: string) => { void openThread(threadId); };
 
   // Panels that live in the left sidebar (paired with the main editor/chat area).
   const sidebarPanel = (() => {
@@ -145,18 +88,34 @@ export function BubbleRoom() {
       <TitleBar />
 
       {/* Browser fallback strip: the desktop TitleBar is hidden in the browser,
-          so surface the Vibe/Editor tabs here too, top-left. */}
+          so the same controls live here. */}
       {!isDesktop() && (
-        <div className="flex items-center h-9 shrink-0 px-2 gap-2">
-          <ModeTabs />
-          <div className="flex-1" />
+        <div className="browser-titlebar">
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => setLeftHidden(!leftHidden)}
+              className={`titlebar-icon ${leftHidden ? '' : 'titlebar-icon--active'}`}
+              title={leftHidden ? 'Show sidebar (Ctrl+B)' : 'Hide sidebar (Ctrl+B)'}
+              aria-label={leftHidden ? 'Show sidebar' : 'Hide sidebar'}
+              aria-pressed={!leftHidden}
+            >
+              <PanelLeft size={15} />
+            </button>
+            <button onClick={() => window.history.back()} className="titlebar-icon" title="Back" aria-label="Back">
+              <ArrowLeft size={15} />
+            </button>
+            <button onClick={() => window.history.forward()} className="titlebar-icon" title="Forward" aria-label="Forward">
+              <ArrowRight size={15} />
+            </button>
+          </div>
+          <div className="flex-1 flex justify-center"><ModeTabs /></div>
           <ThemeToggle />
         </div>
       )}
 
       {/* Body: activity bar + sidebar + main + right panel.
-          Flat page background with floating cards separated by an 8px gutter. */}
-      <div className="flex flex-1 min-h-0 relative gap-2 p-2">
+          Navigation and conversation share the page surface. */}
+      <div className="workspace-body flex flex-1 min-h-0 relative">
         {/* Mode-switch loading veil — a brief, deliberate transition. */}
         {modeSwitching && (
           /*
@@ -170,78 +129,40 @@ export function BubbleRoom() {
           <div className="absolute inset-0 z-30 bg-surface-0/60 backdrop-blur-[1px] flex items-center justify-center motion-appear pointer-events-none">
             <div className="flex items-center gap-2 text-sm text-text-muted">
               <span className="motion-breathe w-1.5 h-1.5 rounded-full bg-accent" />
-              <span>Switching to {uiMode === 'editor' ? 'Editor' : 'Agents'}…</span>
+              <span>Switching to {uiMode === 'editor' ? 'Editor' : 'Agent'}…</span>
             </div>
           </div>
         )}
 
-        {/* Left rail (activity bar + sidebar) — hideable for a focused view. */}
-        <AnimatePresence initial={false}>
-          {!leftHidden && (
-            <motion.div
-              key="left-rail"
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 'auto', opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex gap-2 min-h-0 overflow-hidden shrink-0"
-            >
-              {/* The icon rail hides independently of the sidebar. */}
-              <AnimatePresence initial={false}>
-                {!navHidden && (
-                  <motion.div
-                    key="activity-rail"
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: 'auto', opacity: 1 }}
-                    exit={{ width: 0, opacity: 0 }}
-                    transition={{ duration: 0.16, ease: 'easeOut' }}
-                    className="overflow-hidden shrink-0 flex"
-                  >
-                    <ActivityBar />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              {showSidebar && (
-                <ResizablePanel
-                  defaultWidth={280}
-                  minWidth={200}
-                  maxWidthPercent={32}
-                  storageKey="ide-sidebar-width"
-                  position="right"
-                  className="card bg-surface-1 overflow-hidden flex flex-col shrink-0"
-                >
-                  {sidebarPanel}
-                </ResizablePanel>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Restore affordance — only when the rail itself is gone.
-            Collapsing is done from the foot of the rail (see ActivityBar), so
-            this exists purely for the state where there is no rail left to
-            click. Floating it over the content while the rail IS visible would
-            put it on top of the rail's own buttons. */}
-        {(leftHidden || navHidden) && (
-          <motion.button
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-            onClick={() => { setLeftHidden(false); setNavHidden(false); }}
-            title="Show side panel (Ctrl+B)"
-            aria-label="Show side panel"
-            aria-expanded={false}
-            className="absolute left-3 top-3 z-20 p-1.5 rounded-lg bg-surface-2/90 backdrop-blur border border-border shadow-lg text-text-dim hover:text-text transition-colors"
+        {leftHidden && (
+          <div
+            className="sidebar-edge-trigger"
+            aria-hidden="true"
+            onMouseEnter={() => setSidebarPeek(true)}
+          />
+        )}
+        {(!leftHidden || sidebarPeek) && (
+          <div
+            className={leftHidden ? 'sidebar-peek' : 'sidebar-pinned'}
+            onMouseLeave={() => { if (leftHidden) setSidebarPeek(false); }}
           >
-            <PanelLeft size={14} />
-          </motion.button>
+            <ActivityBar onThreadSelect={handleThreadSelect} />
+          </div>
+        )}
+        {!leftHidden && showSidebar && (
+          <ResizablePanel defaultWidth={280} minWidth={200} maxWidthPercent={32}
+            storageKey="ide-sidebar-width" position="right"
+            className="workspace-sidebar overflow-hidden flex flex-col shrink-0">
+            {sidebarPanel}
+          </ResizablePanel>
         )}
 
         {/* Center column: the chat/editor. Panels are now accessed via a 3-dot 
             menu in the top right of the chat UI, eliminating the bottom DockBar 
             and maximizing vertical screen space. */}
-        <div className="flex flex-1 min-w-0 min-h-0 gap-2">
-          <div className="flex flex-col flex-1 min-w-0 gap-2">
-            <div className="flex-1 min-h-0 overflow-hidden card bg-surface-1">
+        <div className="workspace-content flex flex-1 min-w-0 min-h-0 gap-2">
+          <div className="workspace-center flex flex-col flex-1 min-w-0 gap-2">
+            <div className="workspace-main flex-1 min-h-0 overflow-hidden">
               {mainArea}
             </div>
           </div>
@@ -261,12 +182,12 @@ export function BubbleRoom() {
           */}
           {(rightPanelOpen || uiMode === 'editor') && (
             <ResizablePanel
-              defaultWidth={uiMode === 'editor' ? 440 : 400}
+              defaultWidth={uiMode === 'editor' ? 540 : 580}
               minWidth={320}
               maxWidthPercent={50}
-              storageKey={uiMode === 'editor' ? 'ide-side-width' : 'ide-right-width-vibe'}
+              storageKey={uiMode === 'editor' ? 'ide-side-bento-width' : 'ide-right-bento-width'}
               position="left"
-              className="overflow-hidden flex flex-col shrink-0"
+              className="workspace-right overflow-hidden flex flex-col"
             >
               {uiMode === 'editor' ? <EditorSidePanel /> : <RightPanel />}
             </ResizablePanel>

@@ -33,7 +33,8 @@ export function TerminalPanel() {
   const [section, setSection] = useState<Section>('terminal');
 
   const fontSize = Number(settings?.terminalFontSize ?? '13') || 13;
-  const active = terminals.find((t) => t.id === activeTerminalId || t.clientRef === activeTerminalId);
+  // Fall back to the first terminal rather than an empty pane over a live shell.
+  const active = terminals.find((t) => t.id === activeTerminalId || t.clientRef === activeTerminalId) ?? terminals[0];
 
   // Detect listening ports from terminal output (e.g. "localhost:3000").
   const ports = useMemo(() => {
@@ -83,7 +84,10 @@ export function TerminalPanel() {
   // Auto-create a USER terminal the first time the Terminal section is shown.
   useEffect(() => {
     if (section !== 'terminal') return;
-    const hasUserTerminal = terminals.some((t) => t.origin !== 'agent');
+    // Read the store, not the render's snapshot: the effect can run twice
+    // before a re-render (StrictMode, a fast second change), and the stale
+    // list said "none yet" both times — two terminals for one click.
+    const hasUserTerminal = useStore.getState().terminals.some((t) => t.origin !== 'agent');
     if (!hasUserTerminal && workspacePath) createTerminal(workspacePath);
   }, [section, terminals, workspacePath, createTerminal]);
 
@@ -96,27 +100,37 @@ export function TerminalPanel() {
   const sections: Array<{ id: Section; label: string; badge?: number }> = [
     { id: 'problems', label: 'Problems' },
     { id: 'output', label: 'Output' },
-    { id: 'debug', label: 'Debug Console' },
+    { id: 'debug', label: 'Debug' },
     { id: 'terminal', label: 'Terminal', badge: terminals.length || undefined },
     { id: 'ports', label: 'Ports', badge: ports.length || undefined },
   ];
 
   return (
-    <div className="flex flex-col h-full bg-surface-0 text-text">
+    <div className="flex flex-col h-full text-text" style={{ background: 'var(--canvas)' }}>
       {/* Section tabs */}
-      <div className="flex items-center gap-0.5 px-2 h-9 border-b border-border shrink-0 bg-surface-1 overflow-x-auto">
+      <div className="flex items-center gap-0.5 px-2 h-9 border-b border-border shrink-0 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
         {sections.map((s) => (
           <button
             key={s.id}
             onClick={() => setSection(s.id)}
-            className={`flex items-center gap-1.5 px-2.5 h-7 rounded-md text-[11px] uppercase tracking-wide font-medium whitespace-nowrap shrink-0 transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 h-7 rounded-md text-[12px] font-medium whitespace-nowrap shrink-0 transition-colors ${
               section === s.id ? 'text-text bg-surface-3' : 'text-text-dim hover:text-text hover:bg-surface-2'
             }`}
           >
             {s.label}
-            {s.badge ? <span className="text-[9px] bg-surface-0 text-text-dim rounded-full px-1.5">{s.badge}</span> : null}
+            {s.badge ? <span className="text-[10px] bg-surface-2 text-text-dim rounded-full px-1.5 tabular-nums">{s.badge}</span> : null}
           </button>
         ))}
+        {section === 'terminal' && (
+          <button
+            onClick={() => workspacePath && createTerminal(workspacePath)}
+            className="ml-auto p-1.5 rounded-md text-text-dim hover:bg-surface-2 hover:text-text transition-colors shrink-0"
+            title="New terminal"
+            aria-label="New terminal"
+          >
+            <Plus size={14} />
+          </button>
+        )}
       </div>
 
       {/* Body */}
@@ -130,13 +144,13 @@ export function TerminalPanel() {
               {active && active.origin !== 'agent' && (
                 <div className="absolute inset-0 flex flex-col">
                   {active.awaitingInput && active.alive && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-200 shrink-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                      <span className="truncate">Waiting for input: <span className="font-mono text-amber-100">{active.awaitingInput.prompt}</span></span>
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-warning-bg border-b border-amber-agent/30 text-xs text-amber-agent shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-agent motion-breathe shrink-0" />
+                      <span className="truncate">Waiting for input: <span className="font-mono text-text">{active.awaitingInput.prompt}</span></span>
                       {active.awaitingInput.suggestedReply && (
                         <button
                           onClick={() => sendTerminalInput(active.id, `${active.awaitingInput!.suggestedReply}\r`)}
-                          className="ml-auto px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 transition-colors shrink-0"
+                          className="ml-auto px-2 py-0.5 rounded bg-amber-agent/15 hover:bg-amber-agent/25 text-amber-agent transition-colors shrink-0"
                         >
                           Send "{active.awaitingInput.suggestedReply}"
                         </button>
@@ -166,18 +180,9 @@ export function TerminalPanel() {
               )}
             </div>
 
-            {/* Right: terminal list (VS Code-style split list) */}
-            <div className="w-48 shrink-0 border-l border-border bg-surface-1 flex flex-col">
-              <div className="flex items-center justify-between px-2 h-7 border-b border-border shrink-0">
-                <span className="text-[10px] uppercase tracking-wide text-text-dim font-medium">Terminals</span>
-                <button
-                  onClick={() => workspacePath && createTerminal(workspacePath)}
-                  className="p-0.5 rounded text-text-dim hover:bg-surface-3 hover:text-text transition-colors"
-                  title="New terminal"
-                >
-                  <Plus size={13} />
-                </button>
-              </div>
+            {/* Right: the terminal list, only once there is more than one to pick between. */}
+            {terminals.length > 1 && (
+            <div className="w-40 shrink-0 border-l border-border flex flex-col">
               <div className="flex-1 overflow-y-auto py-1">
                 {terminals.length === 0 && <div className="px-2 py-1 text-[11px] text-text-dim">No terminals</div>}
                 {terminals.map((t) => {
@@ -192,10 +197,10 @@ export function TerminalPanel() {
                       }`}
                     >
                       {isAgent
-                        ? <Bot size={12} className={t.alive ? 'text-violet-agent' : 'text-text-dim'} />
-                        : <Terminal size={12} className={t.alive ? 'text-green-agent' : 'text-text-dim'} />}
+                        ? <Bot size={12} className={t.alive ? 'text-accent' : 'text-text-dim'} />
+                        : <Terminal size={12} className={t.alive ? 'text-text-muted' : 'text-text-dim'} />}
                       <span className="truncate flex-1">{isAgent ? `AI: ${t.title}` : t.title}</span>
-                      {t.awaitingInput && t.alive && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />}
+                      {t.awaitingInput && t.alive && <span className="w-1.5 h-1.5 rounded-full bg-amber-agent motion-breathe shrink-0" />}
                       <button
                         onClick={(e) => { e.stopPropagation(); isAgent ? closeTerminal(t.id) : killTerminal(t.id); }}
                         className="opacity-0 group-hover:opacity-100 hover:text-red-agent transition-opacity shrink-0"
@@ -208,6 +213,7 @@ export function TerminalPanel() {
                 })}
               </div>
             </div>
+            )}
           </div>
         )}
 

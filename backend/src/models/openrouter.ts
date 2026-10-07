@@ -131,6 +131,8 @@ export async function callOpenRouter(params: {
   extraHeaders?: Record<string, string>;
   /** Label for logs and errors. */
   providerName?: string;
+  /** An undici dispatcher, e.g. Cordon's mutual-TLS identity. */
+  dispatcher?: unknown;
 }): Promise<ModelResponse> {
   const modelLogger = logger.child({
     component: 'model-openrouter',
@@ -204,12 +206,16 @@ export async function callOpenRouter(params: {
   };
 
   try {
+    // Node's fetch is undici's and takes its dispatcher, which RequestInit
+    // does not declare.
+    const transport = params.dispatcher ? { dispatcher: params.dispatcher } : {};
     let response = await fetch(endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify(requestBody),
-      signal: requestController.signal
-    });
+      signal: requestController.signal,
+      ...transport,
+    } as RequestInit);
 
     if (!response.ok) {
       let errorText = await response.text();
@@ -237,7 +243,8 @@ export async function callOpenRouter(params: {
           headers,
           body: JSON.stringify(requestBody),
           signal: requestController.signal,
-        });
+          ...transport,
+        } as RequestInit);
         if (!response.ok) errorText = await response.text();
       }
 

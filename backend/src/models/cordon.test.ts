@@ -77,3 +77,42 @@ describe('Cordon provider', () => {
     })).rejects.toThrow(/403|not permitted/);
   });
 });
+
+describe('Cordon over mutual TLS', () => {
+  const realFetch = global.fetch;
+  const saved = { ...process.env };
+  afterEach(() => {
+    global.fetch = realFetch;
+    process.env = { ...saved };
+  });
+
+  const fixture = (name: string) =>
+    require('path').join(__dirname, '..', '..', 'test-fixtures', name);
+
+  it('presents the client certificate to an https node', async () => {
+    process.env.CORDON_CLIENT_CERT = fixture('cordon-client.crt');
+    process.env.CORDON_CLIENT_KEY = fixture('cordon-client.key');
+    process.env.CORDON_CA_CERT = fixture('cordon-client.crt');
+    let init: any;
+    global.fetch = jest.fn(async (_url: any, i: any) => {
+      init = i;
+      return new Response(JSON.stringify({
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as unknown as typeof fetch;
+
+    await callModel({
+      config: { provider: 'cordon', model: 'default', cordonUrl: 'https://cordon.internal:8443', maxTokens: 64 },
+      systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], tools: [],
+    });
+    expect(init.dispatcher).toBeDefined();
+    expect(init.dispatcher.constructor.name).toBe('Agent');
+  });
+
+  it('leaves a plain-HTTP Light node alone', () => {
+    const { cordonDispatcher } = require('./cordonTls');
+    expect(cordonDispatcher('http://cordon:8443', { CORDON_CLIENT_CERT: '/x.crt' })).toBeUndefined();
+    expect(() => cordonDispatcher('https://cordon:8443', { CORDON_CLIENT_CERT: '/nowhere/x.crt' }))
+      .toThrow(/cannot read the client certificate/);
+  });
+});

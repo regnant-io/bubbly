@@ -3,6 +3,7 @@ import { callOllama } from './ollama';
 import { callGemini } from './gemini';
 import { callOpenRouter } from './openrouter';
 import type { ModelResponse, ToolDefinition, Message, AgentConfig } from '../types';
+import { cordonDispatcher } from './cordonTls';
 
 export async function callModel(params: {
   config: AgentConfig;
@@ -104,8 +105,8 @@ export async function callModel(params: {
     // Cordon speaks OpenAI's protocol, tool calls included, and admits each
     // request under Bubbly's client identity, audits it and signs the answer.
     // In Light mode the client ID travels as x-client-id (and as the bearer,
-    // for proxies that strip custom headers); other modes need mutual TLS at
-    // the transport, e.g. a local mTLS proxy in front of the node.
+    // for proxies that strip custom headers); every other mode identifies
+    // Bubbly by its client certificate (CORDON_CLIENT_CERT, see cordonTls).
     const base = (config.cordonUrl || 'http://127.0.0.1:8443').replace(/\/+$/, '');
     const clientId = config.cordonClientId || 'bubbly';
     return callOpenRouter({
@@ -122,6 +123,7 @@ export async function callModel(params: {
       endpoint: `${base}/openai/v1/chat/completions`,
       extraHeaders: { 'x-client-id': clientId },
       providerName: 'Cordon',
+      dispatcher: cordonDispatcher(base),
     });
   } else {
     throw new Error(`Unknown provider: ${config.provider}`);

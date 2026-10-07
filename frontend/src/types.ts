@@ -1,4 +1,4 @@
-export type Provider = 'claude' | 'ollama' | 'gemini' | 'openrouter';
+export type Provider = 'claude' | 'ollama' | 'gemini' | 'openrouter' | 'cordon';
 export type ThreadType = 'vibe_coding' | 'spec_session';
 
 export interface Session {
@@ -24,6 +24,12 @@ export interface Settings {
   geminiModel: string;
   openrouterModel: string;
   ollamaModel: string;
+  /** Cordon (Regnant): node address, enrolled client ID, model, limits. */
+  cordonUrl?: string;
+  cordonClientId?: string;
+  cordonModel?: string;
+  cordonMaxTokens?: string;
+  cordonContextTokens?: string;
   workspacePath: string;
   requireApprovalForWrites: string;
   requireApprovalForShell: string;

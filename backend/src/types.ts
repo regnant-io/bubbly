@@ -39,7 +39,7 @@ export interface ModelResponse {
   usage?: { inputTokens: number; outputTokens: number };
 }
 
-export type ModelProvider = 'claude' | 'ollama' | 'gemini' | 'openrouter';
+export type ModelProvider = 'claude' | 'ollama' | 'gemini' | 'openrouter' | 'cordon';
 
 export interface AgentConfig {
   provider: ModelProvider;
@@ -48,6 +48,9 @@ export interface AgentConfig {
   /** Google Gemini API key (used when provider === 'gemini'). */
   geminiApiKey?: string;
   baseUrl?: string;
+  /** Cordon (Regnant): the node's API address and the client ID it enrolled. */
+  cordonUrl?: string;
+  cordonClientId?: string;
   temperature?: number;
   maxTokens?: number;
   /** Ollama context window (num_ctx). Defaults to 16384 if unset. */

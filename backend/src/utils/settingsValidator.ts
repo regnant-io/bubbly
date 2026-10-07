@@ -149,10 +149,10 @@ export async function validateSettings(
 
   // Validate provider selection
   if (updates.defaultProvider !== undefined) {
-    if (!['claude', 'ollama', 'gemini', 'openrouter'].includes(updates.defaultProvider)) {
+    if (!['claude', 'ollama', 'gemini', 'openrouter', 'cordon'].includes(updates.defaultProvider)) {
       errors.push({
         field: 'defaultProvider',
-        message: 'Provider must be "claude", "ollama", "gemini", or "openrouter"',
+        message: 'Provider must be "claude", "ollama", "gemini", "openrouter", or "cordon"',
       });
     }
   }

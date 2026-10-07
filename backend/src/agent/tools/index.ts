@@ -760,6 +760,8 @@ async function activeModelSupportsVision(): Promise<boolean> {
   if (provider === 'openrouter') {
     return supportsVision('openrouter', getSetting('openrouterModel') || '');
   }
+  // Cordon serves text models and refuses image parts rather than drop them.
+  if (provider === 'cordon') return false;
 
   const model = getSetting('ollamaModel') || '';
   const baseUrl = getSetting('ollamaBaseUrl') || 'http://localhost:11434';

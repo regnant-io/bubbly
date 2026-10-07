@@ -833,11 +833,12 @@ export async function runAgentLoop(params: {
   });
   
   const settings = getAllSettings();
-  const provider = settings.defaultProvider as 'claude' | 'ollama' | 'gemini' | 'openrouter';
+  const provider = settings.defaultProvider as 'claude' | 'ollama' | 'gemini' | 'openrouter' | 'cordon';
   const model =
     provider === 'claude' ? settings.claudeModel
     : provider === 'gemini' ? settings.geminiModel
     : provider === 'openrouter' ? settings.openrouterModel
+    : provider === 'cordon' ? (settings.cordonModel || 'default')
     : settings.ollamaModel;
   const requireApprovalForWrites = settings.requireApprovalForWrites === 'true';
   const requireApprovalForShell = settings.requireApprovalForShell === 'true';
@@ -916,6 +917,33 @@ export async function runAgentLoop(params: {
     return;
   }
 
+  if (provider === 'cordon') {
+    const cordonUrl = (settings.cordonUrl || 'http://127.0.0.1:8443').replace(/\/+$/, '');
+    try {
+      const response = await fetch(`${cordonUrl}/v1/health`, { signal: AbortSignal.timeout(5000) });
+      const health = response.ok ? await response.json() as { serving?: boolean } : null;
+      if (!health?.serving) {
+        params.onEvent({
+          type: 'status',
+          content: `Warning: Cordon at ${cordonUrl} is not serving. Attempting to continue...`,
+        });
+      }
+    } catch {
+      logger.error('Cordon not reachable', { url: cordonUrl });
+      params.onEvent({
+        type: 'error',
+        message: `Cannot reach Cordon at ${cordonUrl}.`,
+        recoverable: true,
+        suggestions: [
+          'Start the node with `cordon run <model>`',
+          'Check the Cordon address in Settings',
+          'Alternatively, switch to Ollama in Settings',
+        ],
+      });
+      return;
+    }
+  }
+
   if (provider === 'ollama') {
     try {
       const ollamaUrl = settings.ollamaBaseUrl || 'http://localhost:11434';
@@ -953,6 +981,8 @@ export async function runAgentLoop(params: {
       : settings.anthropicApiKey || undefined,
     geminiApiKey: settings.geminiApiKey || undefined,
     baseUrl: settings.ollamaBaseUrl || 'http://localhost:11434',
+    cordonUrl: settings.cordonUrl || 'http://127.0.0.1:8443',
+    cordonClientId: settings.cordonClientId || 'bubbly',
     // Output ceiling. A whole large file is emitted inside ONE tool-call
     // argument, so a low cap truncates it mid-generation (the #1 cause of
     // "files keep truncating"). Modern Claude models support far more; give
@@ -1023,6 +1053,14 @@ export async function runAgentLoop(params: {
         model: agentConfig.model, error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  // Cordon enforces a per-client output ceiling (4096 tokens unless the
+  // operator raised it), and its context window is whatever the runtime was
+  // started with; neither is discoverable over the API, so Settings carries them.
+  if (agentConfig.provider === 'cordon') {
+    agentConfig.maxTokens = parseInt(settings.cordonMaxTokens || '4096', 10) || 4096;
+    agentConfig.resolvedContextTokens = parseInt(settings.cordonContextTokens || '32768', 10) || 32768;
   }
 
   // Resolve OpenRouter model's context window from the API

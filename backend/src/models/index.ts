@@ -100,6 +100,29 @@ export async function callModel(params: {
       onToolStart: params.onToolStart,
       onToolProgress: params.onToolProgress,
     });
+  } else if (config.provider === 'cordon') {
+    // Cordon speaks OpenAI's protocol, tool calls included, and admits each
+    // request under Bubbly's client identity, audits it and signs the answer.
+    // In Light mode the client ID travels as x-client-id (and as the bearer,
+    // for proxies that strip custom headers); other modes need mutual TLS at
+    // the transport, e.g. a local mTLS proxy in front of the node.
+    const base = (config.cordonUrl || 'http://127.0.0.1:8443').replace(/\/+$/, '');
+    const clientId = config.cordonClientId || 'bubbly';
+    return callOpenRouter({
+      apiKey: clientId,
+      model: config.model || 'default',
+      systemPrompt: params.systemPrompt,
+      messages: params.messages,
+      tools: params.tools,
+      maxTokens: config.maxTokens,
+      signal: params.signal,
+      onToken: params.onToken,
+      onToolStart: params.onToolStart,
+      onToolProgress: params.onToolProgress,
+      endpoint: `${base}/openai/v1/chat/completions`,
+      extraHeaders: { 'x-client-id': clientId },
+      providerName: 'Cordon',
+    });
   } else {
     throw new Error(`Unknown provider: ${config.provider}`);
   }

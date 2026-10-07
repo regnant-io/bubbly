@@ -55,7 +55,7 @@ const OLLAMA_DEFAULT_NUM_CTX = 16_384;
  * Resolve the operative context limit for the active model.
  */
 export function getContextLimit(params: {
-  provider: 'claude' | 'ollama' | 'gemini' | 'openrouter';
+  provider: 'claude' | 'ollama' | 'gemini' | 'openrouter' | 'cordon';
   model: string;
   /** The configured Ollama num_ctx (the window we actually send). */
   numCtx?: number;
@@ -99,6 +99,14 @@ export function getContextLimit(params: {
       if (entry.match.test(params.model)) return { maxTokens: entry.tokens, source: 'registry' };
     }
     return { maxTokens: GEMINI_DEFAULT, source: 'default' };
+  }
+  if (params.provider === 'cordon') {
+    // Cordon serves whatever context its operator gave the runtime; Settings
+    // carries that number (cordonContextTokens) because the API cannot.
+    if (params.resolvedContextTokens && params.resolvedContextTokens > 0) {
+      return { maxTokens: params.resolvedContextTokens, source: 'provider-api' };
+    }
+    return { maxTokens: 32_768, source: 'default' };
   }
   if (params.provider === 'openrouter') {
     // Resolved from the OpenRouter models endpoint, when it answered.
@@ -148,7 +156,7 @@ export interface ContextPressure {
  *   (default 0.85). Crossing it means "summarize and move to a fresh thread".
  */
 export function evaluateContextPressure(params: {
-  provider: 'claude' | 'ollama' | 'gemini' | 'openrouter';
+  provider: 'claude' | 'ollama' | 'gemini' | 'openrouter' | 'cordon';
   model: string;
   numCtx?: number;
   autoNumCtxCeiling?: number;

@@ -30,7 +30,7 @@ export function ModelSelector() {
   }, [open]);
 
   // Group options by provider for a tidy menu.
-  const groups: Record<Provider, ModelOption[]> = { claude: [], gemini: [], ollama: [], openrouter: [] };
+  const groups: Record<Provider, ModelOption[]> = { claude: [], gemini: [], ollama: [], openrouter: [], cordon: [] };
   for (const o of options) groups[o.provider].push(o);
 
   const label = activeModel || 'Select model';
@@ -72,7 +72,7 @@ export function ModelSelector() {
             </div>
           )}
 
-          {(['claude', 'gemini', 'openrouter', 'ollama'] as Provider[]).map((p) =>
+          {(['claude', 'gemini', 'openrouter', 'cordon', 'ollama'] as Provider[]).map((p) =>
             groups[p].length > 0 ? (
               <div key={p} className="py-0.5">
                 <div className="flex items-center gap-1.5 px-3 py-1">

@@ -8,7 +8,7 @@ import {
 } from '../Shared/icons';
 import { AnimatePresence, motion } from 'framer-motion';
 
-type Provider = 'claude' | 'ollama' | 'gemini' | 'openrouter';
+type Provider = 'claude' | 'ollama' | 'gemini' | 'openrouter' | 'cordon';
 type StepId = 'welcome' | 'provider' | 'workspace' | 'tour' | 'done';
 const STEPS: StepId[] = ['welcome', 'provider', 'workspace', 'tour', 'done'];
 const STEP_LABELS: Record<StepId, string> = {

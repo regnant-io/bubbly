@@ -75,6 +75,7 @@ function modelKeyFor(provider: string): string {
     case 'claude': return 'claudeModel';
     case 'gemini': return 'geminiModel';
     case 'openrouter': return 'openrouterModel';
+    case 'cordon': return 'cordonModel';
     default: return 'ollamaModel';
   }
 }
@@ -471,7 +472,7 @@ export async function runLocalCommand(
       if (!arg) {
         line();
         rows([['provider', provider], ['model', settings[key] ?? '(default)']]);
-        line(`\n  ${chalk.dim('Change it with /model <name>. Switch provider with /config defaultProvider <claude|ollama|gemini|openrouter>.')}\n`);
+        line(`\n  ${chalk.dim('Change it with /model <name>. Switch provider with /config defaultProvider <claude|ollama|gemini|openrouter|cordon>.')}\n`);
         return 'handled';
       }
 
@@ -626,7 +627,8 @@ export async function runLocalCommand(
       try {
         const settings = await client.get<Record<string, string>>('/api/settings');
         const provider = settings.defaultProvider || 'claude';
-        const hasKey = provider === 'ollama' || !!(
+        // Ollama and Cordon run on your own machines and need no API key.
+        const hasKey = provider === 'ollama' || provider === 'cordon' || !!(
           provider === 'claude' ? settings.anthropicApiKey
           : provider === 'gemini' ? settings.geminiApiKey
           : settings.openrouterApiKey

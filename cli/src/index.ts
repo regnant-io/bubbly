@@ -529,7 +529,8 @@ program
     const provider = settings.defaultProvider || 'claude';
     const modelKey = provider === 'claude' ? 'claudeModel'
       : provider === 'gemini' ? 'geminiModel'
-      : provider === 'openrouter' ? 'openrouterModel' : 'ollamaModel';
+      : provider === 'openrouter' ? 'openrouterModel'
+      : provider === 'cordon' ? 'cordonModel' : 'ollamaModel';
 
     process.stdout.write('\n');
     process.stdout.write(`  ${chalk.dim('backend'.padEnd(12))}${client.baseUrl}\n`);
@@ -699,7 +700,7 @@ program
         const settings = await client.get<Record<string, string>>('/api/settings');
         const provider = settings.defaultProvider || 'claude';
         const hasKey =
-          provider === 'ollama' ||
+          provider === 'ollama' || provider === 'cordon' ||
           !!(provider === 'claude' ? settings.anthropicApiKey
             : provider === 'gemini' ? settings.geminiApiKey
             : settings.openrouterApiKey);

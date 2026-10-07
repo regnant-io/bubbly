@@ -308,7 +308,7 @@ export function SettingsPanel() {
                 <Section title="Default Provider">
                   <Field label="Provider">
                     <div className="flex gap-3">
-                      {(['claude', 'ollama', 'gemini', 'openrouter'] as const).map((p) => (
+                      {(['claude', 'ollama', 'gemini', 'openrouter', 'cordon'] as const).map((p) => (
                         <button
                           key={p}
                           onClick={() => update('defaultProvider', p)}
@@ -319,7 +319,7 @@ export function SettingsPanel() {
                           }`}
                         >
                           {p === 'claude' ? <Zap size={14} /> : p === 'gemini' ? <Sparkles size={14} /> : p === 'openrouter' ? <Sparkles size={14} /> : <Cpu size={14} />}
-                          {p === 'claude' ? 'Claude' : p === 'gemini' ? 'Gemini' : p === 'openrouter' ? 'OpenRouter' : 'Ollama'}
+                          {p === 'claude' ? 'Claude' : p === 'gemini' ? 'Gemini' : p === 'openrouter' ? 'OpenRouter' : p === 'cordon' ? 'Cordon' : 'Ollama'}
                         </button>
                       ))}
                     </div>
@@ -426,6 +426,49 @@ export function SettingsPanel() {
                         )}
                       </div>
                     )}
+                  </Field>
+                </Section>
+
+                <Section title="Cordon (Regnant — local, audited, signed)">
+                  <Field label="Cordon address" hint="Where `cordon run` serves its API. Every request is audited by the node and every answer signed.">
+                    <input
+                      type="text"
+                      className="input font-mono"
+                      value={String(form.cordonUrl ?? 'http://127.0.0.1:8443')}
+                      onChange={(e) => update('cordonUrl', e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Client ID" hint="Must be enrolled in Cordon's clients.json, with the model permitted.">
+                    <input
+                      type="text"
+                      className="input font-mono"
+                      value={String(form.cordonClientId ?? 'bubbly')}
+                      onChange={(e) => update('cordonClientId', e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Model" hint="`default` asks for the model the node loaded. Tool calling needs a runtime that supports it (llama.cpp with --jinja, or Ollama).">
+                    <input
+                      type="text"
+                      className="input font-mono"
+                      value={String(form.cordonModel ?? 'default')}
+                      onChange={(e) => update('cordonModel', e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Output tokens · context window" hint="Cordon caps output per client (4096 unless raised); the context is what the runtime was started with.">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="input font-mono flex-1"
+                        value={String(form.cordonMaxTokens ?? '4096')}
+                        onChange={(e) => update('cordonMaxTokens', e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        className="input font-mono flex-1"
+                        value={String(form.cordonContextTokens ?? '32768')}
+                        onChange={(e) => update('cordonContextTokens', e.target.value)}
+                      />
+                    </div>
                   </Field>
                 </Section>
 

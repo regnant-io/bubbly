@@ -186,6 +186,7 @@ but deliberately cannot merge, force-push or close anything.
 | **Ollama** | Local models. Context window resolved from `/api/show`, not guessed. |
 | **Google Gemini** | Context window resolved from the API. |
 | **OpenRouter** | Anything OpenRouter serves; context window resolved from its catalogue. |
+| **Cordon** | [Cordon](https://github.com/regnant-io/cordon), Regnant's confidential inference engine, on your own hardware. Bubbly is admitted under its client ID (Settings → Cordon), every request is audited by the node and every answer signed. Tool calls pass through; the runtime must support them (llama.cpp with `--jinja`, or Ollama). Output tokens and context window are set in Settings, since Cordon's operator sets both. |
 
 Bubbly measures context pressure against the model's *real* window, compacts
 history when it approaches it, and migrates to a fresh thread with a handoff

@@ -122,6 +122,15 @@ export async function callOpenRouter(params: {
   onToken?: (text: string) => void;
   onToolStart?: (info: { id: string; name: string }) => void;
   onToolProgress?: (info: { id: string; name: string; partialJson: string }) => void;
+  /**
+   * Any OpenAI-compatible chat-completions URL. Defaults to OpenRouter; Cordon
+   * passes its own `/openai/v1/chat/completions`.
+   */
+  endpoint?: string;
+  /** Extra request headers, e.g. Cordon's `x-client-id`. */
+  extraHeaders?: Record<string, string>;
+  /** Label for logs and errors. */
+  providerName?: string;
 }): Promise<ModelResponse> {
   const modelLogger = logger.child({
     component: 'model-openrouter',
@@ -182,18 +191,22 @@ export async function callOpenRouter(params: {
   if (params.signal?.aborted) abortFromCaller();
   else params.signal?.addEventListener('abort', abortFromCaller, { once: true });
   const requestTimeout = setTimeout(() => requestController.abort(
-    new Error('OpenRouter request timed out'),
+    new Error(`${params.providerName ?? 'OpenRouter'} request timed out`),
   ), 180_000);
 
+  const endpoint = params.endpoint ?? 'https://openrouter.ai/api/v1/chat/completions';
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${params.apiKey}`,
+    'HTTP-Referer': 'https://bubbly.app',
+    'X-Title': 'Bubbly AI',
+    ...(params.extraHeaders ?? {}),
+  };
+
   try {
-    let response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    let response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${params.apiKey}`,
-        'HTTP-Referer': 'https://bubbly.app',
-        'X-Title': 'Bubbly AI'
-      },
+      headers,
       body: JSON.stringify(requestBody),
       signal: requestController.signal
     });
@@ -219,14 +232,9 @@ export async function callOpenRouter(params: {
           status: response.status,
           detail: errorText.slice(0, 200),
         });
-        response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        response = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${params.apiKey}`,
-            'HTTP-Referer': 'https://bubbly.app',
-            'X-Title': 'Bubbly AI',
-          },
+          headers,
           body: JSON.stringify(requestBody),
           signal: requestController.signal,
         });
@@ -238,7 +246,7 @@ export async function callOpenRouter(params: {
           status: response.status,
           error: errorText
         });
-        throw new Error(`OpenRouter API error ${response.status}: ${errorText}`);
+        throw new Error(`${params.providerName ?? 'OpenRouter'} API error ${response.status}: ${errorText}`);
       }
     }
 

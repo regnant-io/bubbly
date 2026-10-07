@@ -83,6 +83,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
     provider === 'claude' ? 'claudeModel'
     : provider === 'gemini' ? 'geminiModel'
     : provider === 'openrouter' ? 'openrouterModel'
+    : provider === 'cordon' ? 'cordonModel'
     : 'ollamaModel';
 
   process.stdout.write(renderBanner({

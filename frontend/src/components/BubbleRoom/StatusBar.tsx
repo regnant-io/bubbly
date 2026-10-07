@@ -99,6 +99,11 @@ export function StatusBar() {
           <span className="tabular-nums">{pendingDiffs.length} changed</span>
         </div>
       )}
+
+      <span className="pl-2 border-l border-border text-[10px] uppercase tracking-wider opacity-60 select-none"
+            title="Bubbly is built by Regnant · regnant.io">
+        by Regnant
+      </span>
     </div>
   );
 }

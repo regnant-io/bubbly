@@ -22,6 +22,7 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   gemini: 'Gemini',
   ollama: 'Ollama',
   openrouter: 'OpenRouter',
+  cordon: 'Cordon',
 };
 
 /**
@@ -88,6 +89,7 @@ export function useModels() {
     provider === 'claude' ? settings?.claudeModel ?? ''
     : provider === 'gemini' ? settings?.geminiModel ?? ''
     : provider === 'openrouter' ? settings?.openrouterModel ?? ''
+    : provider === 'cordon' ? settings?.cordonModel ?? 'default'
     : settings?.ollamaModel ?? '';
 
   // Accurate vision capability, resolved from the backend's /api/show probe.
@@ -100,6 +102,8 @@ export function useModels() {
     // Claude/Gemini are fixed capabilities. OpenRouter is a marketplace and
     // must resolve the selected model's actual input modalities.
     if (provider === 'claude' || provider === 'gemini') { setResolvedVision(true); return; }
+    // Cordon serves text models.
+    if (provider === 'cordon') { setResolvedVision(false); return; }
     fetchModelVision(provider, activeModel)
       .then((v) => { if (!cancelled) setResolvedVision(v); })
       .catch(() => { if (!cancelled) setResolvedVision(null); });
@@ -145,6 +149,9 @@ export function useModels() {
     const list = openrouterModels.length > 0 ? openrouterModels : [settings.openrouterModel].filter(Boolean);
     for (const id of list) options.push({ provider: 'openrouter', id, label: id });
   }
+  if (settings?.cordonUrl) {
+    options.push({ provider: 'cordon', id: settings.cordonModel || 'default', label: `${settings.cordonModel || 'default'} · Cordon` });
+  }
   for (const id of ollamaModels) options.push({ provider: 'ollama', id, label: id });
 
   const selectModel = useCallback(
@@ -153,6 +160,7 @@ export function useModels() {
       const field = opt.provider === 'claude' ? 'claudeModel' 
         : opt.provider === 'gemini' ? 'geminiModel' 
         : opt.provider === 'openrouter' ? 'openrouterModel'
+        : opt.provider === 'cordon' ? 'cordonModel'
         : 'ollamaModel';
       // Optimistic local update so the UI reflects the choice immediately.
       const next = { ...settings, defaultProvider: opt.provider, [field]: opt.id };
